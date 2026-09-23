@@ -1,0 +1,16 @@
+export const DT = 1 / 60;
+export const RADIUS = 18;
+export const GRAVITY = 2200;
+export const GROUND_ACCEL = 3600;
+export const AIR_ACCEL = 1500;
+export const MAX_RUN = 340;
+export const FRICTION = 2600;
+export const ICE_FRICTION = 260;
+export const STICK_VY = 55;
+export const MAX_FALL = 1500;
+export const BOUNCE_START = 260;
+export const BOUNCE_KEEP = 0.46;
+export const WALL_REST = 0.32;
+export const SLEEP_VX = 16;
+export const WORLD_W = 1280;
+export const WORLD_H = 720;
