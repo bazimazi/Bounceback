@@ -14,4 +14,12 @@ export const INK = {
   danger: "#ff5d73",
   bone: "#f4efe6",
   mute: "#9aa3b5",
+  ice: "#9fd7e8",
+  spring: "#f0c14d",
+  night: "#090b10",
 };
+
+export function rgba(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
