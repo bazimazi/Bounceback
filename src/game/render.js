@@ -1,6 +1,7 @@
 import { RADIUS, WORLD_H, WORLD_W } from "./constants.js";
 import { GHOST_STYLES, INK, rgba } from "./palette.js";
 import { ghostFrozen, ghostPosition, moverRect } from "./sim.js";
+import { chapterArt, drawObservatory, drawRibbon, drawTitleArt } from "./art.js";
 
 const TAU = Math.PI * 2;
 const SHELL = new Set(["ceil", "wall-l", "wall-r"]);
@@ -234,7 +235,7 @@ export function drawFrame(ctx, view) {
 
     drawWorldPost(ctx, cam, w, h, state, now, reduce);
   } else if (state.mode === "title") {
-    drawAttract(ctx, width, height, now, reduce);
+    drawTitleArt(ctx, width, height, now, reduce);
   }
 
   drawVignette(ctx, width, height);
@@ -245,9 +246,9 @@ export function drawFrame(ctx, view) {
 
 function drawBackdrop(ctx, w, h, now, reduce) {
   const g = ctx.createRadialGradient(w / 2, h * 0.42, 0, w / 2, h * 0.42, Math.hypot(w, h) * 0.62);
-  g.addColorStop(0, "#1b2030");
-  g.addColorStop(0.5, "#0f121b");
-  g.addColorStop(1, "#05060a");
+  g.addColorStop(0, "#172e38");
+  g.addColorStop(0.5, "#0c1b25");
+  g.addColorStop(1, "#050c13");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
 
@@ -265,7 +266,7 @@ function drawBackdrop(ctx, w, h, now, reduce) {
       const speed = 4 + hash(i + 3) * 10;
       const x = ((hash(i) * w + (reduce ? 0 : Math.sin(now * 0.2 + i) * 24)) % w + w) % w;
       const y = ((hash(i + 9) * h - (reduce ? 0 : now * speed)) % h + h) % h;
-      const tw = 0.5 + 0.5 * Math.sin(now * (0.8 + hash(i + 5)) + i);
+      const tw = reduce ? 0.5 : 0.5 + 0.5 * Math.sin(now * (0.8 + hash(i + 5)) + i);
       glow(ctx, x, y, 6 + hash(i + 1) * 8, INK.brass, 0.05 + tw * 0.08);
     }
   });
@@ -374,60 +375,6 @@ function drawIris(ctx, w, h, state, reduce) {
   ctx.restore();
 }
 
-// Title screen: past selves bouncing across the floor of the facility.
-function drawAttract(ctx, w, h, now, reduce) {
-  const floor = h * 0.84;
-  const R = clamp(Math.min(w, h) * 0.022, 10, 18);
-  const t0 = reduce ? 3.2 : now;
-  const line = ctx.createLinearGradient(0, 0, w, 0);
-  line.addColorStop(0, "rgba(224,176,122,0)");
-  line.addColorStop(0.5, "rgba(224,176,122,0.5)");
-  line.addColorStop(1, "rgba(224,176,122,0)");
-  ctx.fillStyle = line;
-  ctx.fillRect(0, floor, w, 1.5);
-  const actors = [INK.ball, ...GHOST_STYLES.map((s) => s.color)];
-  const pos = (i, t) => {
-    const speed = 70 + i * 17;
-    const period = 0.9 + i * 0.13;
-    const height = h * (0.16 + (i % 3) * 0.07);
-    const span = w + 240;
-    const x = ((i * 263 + t * speed) % span) - 120;
-    const s = Math.abs(Math.sin((Math.PI * t) / period + i * 0.9));
-    return { x, y: floor - R - height * s, s };
-  };
-  actors.forEach((color, i) => {
-    const ghost = i > 0;
-    additive(ctx, () => {
-      for (let k = 12; k >= 1; k--) {
-        const p = pos(i, t0 - k * 0.028);
-        glow(ctx, p.x, p.y, R * (1.4 - k * 0.06), color, (ghost ? 0.05 : 0.04) * (1 - k / 13));
-      }
-      const p = pos(i, t0);
-      glow(ctx, p.x, p.y, R * 3.5, color, ghost ? 0.18 : 0.14);
-      ctx.save();
-      ctx.translate(p.x, floor);
-      ctx.scale(1, 0.2);
-      glow(ctx, 0, 0, R * 2.2 * (1.2 - p.s * 0.6), color, 0.25 * (1 - p.s * 0.8));
-      ctx.restore();
-    });
-    const p = pos(i, t0);
-    const squash = p.s < 0.12 ? (0.12 - p.s) * 2.2 : 0;
-    ctx.save();
-    ctx.translate(p.x, p.y + R * squash);
-    ctx.scale(1 + squash, 1 - squash);
-    ctx.beginPath();
-    ctx.arc(0, 0, R, 0, TAU);
-    ctx.globalAlpha = ghost ? 0.42 : 0.95;
-    ctx.fillStyle = ghost ? color : "#f6f1e7";
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = ghost ? 1.5 : 2.5;
-    ctx.strokeStyle = ghost ? color : INK.copper;
-    ctx.stroke();
-    ctx.restore();
-  });
-}
-
 /* ---------- world space ---------- */
 
 function drawScene(ctx, session, state, now, reduce, contrast) {
@@ -436,7 +383,7 @@ function drawScene(ctx, session, state, now, reduce, contrast) {
   const intro = reduce ? 1 : clamp((now - (state.levelT0 ?? -9)) / 0.85, 0, 1);
   const sweep = lerp(-40, WORLD_H + 60, easeOutCubic(intro));
 
-  drawBackWall(ctx, now, reduce);
+  drawObservatory(ctx, session, now, reduce, contrast);
   drawPlaques(ctx, level);
   drawWires(ctx, session, geo, now, reduce);
   drawRails(ctx, session);
@@ -479,91 +426,6 @@ function drawScene(ctx, session, state, now, reduce, contrast) {
   drawParticles(ctx, state.particles);
   drawRewindPath(ctx, state);
   drawDust(ctx, now, reduce);
-}
-
-function drawBackWall(ctx, now, reduce) {
-  const g = ctx.createLinearGradient(0, 0, 0, WORLD_H);
-  g.addColorStop(0, "#161b28");
-  g.addColorStop(1, "#0b0e15");
-  ctx.fillStyle = g;
-  ctx.fillRect(-60, -60, WORLD_W + 120, WORLD_H + 120);
-
-  // riveted panels
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(0,0,0,0.35)";
-  ctx.beginPath();
-  for (let x = 0; x <= WORLD_W; x += 128) {
-    ctx.moveTo(x + 0.5, 0);
-    ctx.lineTo(x + 0.5, WORLD_H);
-  }
-  for (let y = 28; y <= WORLD_H; y += 116) {
-    ctx.moveTo(0, y + 0.5);
-    ctx.lineTo(WORLD_W, y + 0.5);
-  }
-  ctx.stroke();
-  ctx.strokeStyle = "rgba(255,255,255,0.028)";
-  ctx.beginPath();
-  for (let x = 0; x <= WORLD_W; x += 128) {
-    ctx.moveTo(x + 1.5, 0);
-    ctx.lineTo(x + 1.5, WORLD_H);
-  }
-  for (let y = 28; y <= WORLD_H; y += 116) {
-    ctx.moveTo(0, y + 1.5);
-    ctx.lineTo(WORLD_W, y + 1.5);
-  }
-  ctx.stroke();
-  ctx.fillStyle = "rgba(255,255,255,0.05)";
-  for (let x = 0; x < WORLD_W; x += 128) {
-    for (let y = 28; y < WORLD_H; y += 116) {
-      ctx.fillRect(x + 8, y + 8, 2, 2);
-      ctx.fillRect(x + 118, y + 8, 2, 2);
-    }
-  }
-
-  // the facility clock
-  ctx.save();
-  ctx.translate(WORLD_W / 2, WORLD_H / 2);
-  ctx.strokeStyle = "rgba(224,176,122,0.1)";
-  ctx.lineWidth = 1;
-  const spin = reduce ? 0 : now * 0.08;
-  ctx.rotate(spin);
-  ctx.beginPath();
-  ctx.arc(0, 0, 250, 0, TAU);
-  ctx.moveTo(300, 0);
-  ctx.arc(0, 0, 300, 0, TAU);
-  for (let i = 0; i < 60; i++) {
-    const a = (i / 60) * TAU;
-    const inner = i % 5 === 0 ? 232 : 243;
-    ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner);
-    ctx.lineTo(Math.cos(a) * 250, Math.sin(a) * 250);
-  }
-  ctx.stroke();
-  ctx.rotate(-spin * 2.5);
-  ctx.strokeStyle = "rgba(61,222,196,0.06)";
-  ctx.setLineDash([3, 14]);
-  ctx.beginPath();
-  ctx.arc(0, 0, 330, 0, TAU);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-
-  // light shafts from the ceiling vents
-  additive(ctx, () => {
-    const sway = reduce ? 0 : Math.sin(now * 0.3) * 20;
-    for (const [x, a] of [[260, 0.05], [700, 0.035], [1080, 0.045]]) {
-      const grad = ctx.createLinearGradient(0, 28, 0, WORLD_H);
-      grad.addColorStop(0, `rgba(224,196,160,${a})`);
-      grad.addColorStop(1, "rgba(224,196,160,0)");
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(x - 30, 28);
-      ctx.lineTo(x + 30, 28);
-      ctx.lineTo(x + 150 + sway, WORLD_H);
-      ctx.lineTo(x - 90 + sway, WORLD_H);
-      ctx.closePath();
-      ctx.fill();
-    }
-  });
 }
 
 function drawPlaques(ctx, level) {
@@ -660,6 +522,28 @@ function drawGoal(ctx, goal, session, state, now, reduce) {
   const wt = session.won ? clamp((now - state.winT0) / 0.9, 0, 1) : 0;
   const spin = reduce ? 0 : now;
 
+  // A physical aperture housing anchors the vortex to the chamber floor.
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.strokeStyle = "#091820";
+  ctx.lineWidth = 13;
+  ctx.beginPath(); ctx.arc(0, 0, 74, 0, TAU); ctx.stroke();
+  ctx.strokeStyle = rgba(INK.brass, 0.55);
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.strokeStyle = rgba(INK.brass, 0.25);
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(0, 0, 81, 0, TAU); ctx.stroke();
+  for (let i = 0; i < 8; i++) {
+    ctx.save(); ctx.rotate(i * TAU / 8);
+    ctx.fillStyle = "#314e55";
+    ctx.fillRect(-5, -79, 10, 10);
+    ctx.fillStyle = INK.teal;
+    ctx.fillRect(-2, -77, 4, 3);
+    ctx.restore();
+  }
+  ctx.restore();
+
   additive(ctx, () => {
     ctx.save();
     ctx.translate(cx, floorY);
@@ -679,6 +563,22 @@ function drawGoal(ctx, goal, session, state, now, reduce) {
   ctx.beginPath();
   ctx.arc(cx, cy, 34 + wt * 10, 0, TAU);
   ctx.fill();
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 7; i++) {
+    const phase = (spin * 0.22 + i / 7) % 1;
+    ctx.save();
+    ctx.rotate(spin * 0.32 + i * 0.6);
+    ctx.strokeStyle = rgba(INK.teal, (1 - phase) * 0.35);
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 5 + phase * 29, 3 + phase * 23, 0, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
 
   ctx.save();
   ctx.translate(cx, cy);
@@ -781,8 +681,9 @@ function drawSolid(ctx, solid, contrast, state, now, reduce) {
     body.addColorStop(0, "#121620");
     body.addColorStop(1, "#0c0f16");
   } else {
-    body.addColorStop(0, "#2b3246");
-    body.addColorStop(1, "#161a26");
+    body.addColorStop(0, "#3b535b");
+    body.addColorStop(0.15, "#263d47");
+    body.addColorStop(1, "#101e29");
   }
   ctx.fillStyle = body;
   ctx.fillRect(x, y, w, h);
@@ -841,6 +742,21 @@ function drawSolid(ctx, solid, contrast, state, now, reduce) {
   } else {
     ctx.fillStyle = "rgba(255,255,255,0.08)";
     for (let rx = x + 12; rx < x + w - 6; rx += 64) ctx.fillRect(rx, y + 12, 3, 3);
+    // Recessed service panels and warm metal edging give platforms real thickness.
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    for (let px = x + 22; h >= 40 && px < x + w - 20; px += 128) {
+      ctx.fillStyle = "rgba(3,12,19,0.5)";
+      roundRect(ctx, px, y + 24, Math.min(94, x + w - px - 8), Math.min(31, h - 28), 3);
+      ctx.fill();
+      ctx.fillStyle = "rgba(143,211,213,0.12)";
+      for (let vent = 0; vent < 5; vent++) ctx.fillRect(px + 9 + vent * 7, y + 31, 2, 14);
+      ctx.fillStyle = rgba(chapterArt(state.session.level.chapter).light, 0.6);
+      ctx.fillRect(px + 72, y + 34, 10, 2);
+    }
+    ctx.fillStyle = "rgba(224,176,122,0.12)";
+    ctx.fillRect(x, y + 6, w, 5);
+    ctx.restore();
   }
 }
 
@@ -1226,13 +1142,16 @@ function stretchFor(vx, vy) {
 function drawGhost(ctx, ghost, index, session, state, now, reduce, contrast) {
   const style = GHOST_STYLES[index % GHOST_STYLES.length];
   const frame = Math.min(session.frame, ghost.frames.length - 1);
-  const pos = ghost.frames[frame] || ghostPosition(ghost, session.frame);
+  const current = ghost.frames[frame] || ghostPosition(ghost, session.frame);
   const prev = ghost.frames[Math.max(0, frame - 1)];
   const frozen = ghostFrozen(ghost, session.frame);
+  const mix = frozen ? 1 : state.renderAlpha;
+  const pos = { x: lerp(prev.x, current.x, mix), y: lerp(prev.y, current.y, mix) };
   const flicker = reduce ? 1 : 0.88 + 0.12 * wave(now * 0.6, index * 3.1);
   const trail = state.trails[index] || [];
 
   drawShadow(ctx, session, pos.x, pos.y, 0.6);
+  if (!reduce) drawRibbon(ctx, trail, style.color, 12, frozen ? 0.3 : 0.7);
 
   additive(ctx, () => {
     for (let i = 0; i < trail.length; i++) {
@@ -1242,7 +1161,7 @@ function drawGhost(ctx, ghost, index, session, state, now, reduce, contrast) {
     glow(ctx, pos.x, pos.y, RADIUS * 3, style.color, (frozen ? 0.12 : 0.3) * flicker);
   });
 
-  const st = frozen ? { k: 0, angle: 0 } : stretchFor((pos.x - prev.x) * 60, (pos.y - prev.y) * 60);
+  const st = frozen || reduce ? { k: 0, angle: 0 } : stretchFor((current.x - prev.x) * 60, (current.y - prev.y) * 60);
   ctx.save();
   ctx.translate(pos.x, pos.y);
   ctx.rotate(st.angle);
@@ -1280,8 +1199,10 @@ function drawGhost(ctx, ghost, index, session, state, now, reduce, contrast) {
 function drawPresent(ctx, session, state, now, reduce, contrast) {
   const ball = session.ball;
   const fx = state.ballFx;
-  let x = ball.x;
-  let y = ball.y;
+  const prev = state.previousBall || ball;
+  const mix = session.won || session.dead ? 1 : state.renderAlpha;
+  let x = lerp(prev.x, ball.x, mix);
+  let y = lerp(prev.y, ball.y, mix);
   let size = 1;
   let spinExtra = 0;
   const goal = session.level.goal;
@@ -1290,11 +1211,11 @@ function drawPresent(ctx, session, state, now, reduce, contrast) {
     const gx = goal.x + goal.w / 2;
     const gy = goal.y + goal.h / 2;
     const e = easeInOutCubic(wt);
-    const swirl = (1 - e) * 26;
+    const swirl = reduce ? 0 : (1 - e) * 26;
     x = lerp(ball.x, gx, e) + Math.cos(wt * 12) * swirl * wt;
     y = lerp(ball.y, gy, e) + Math.sin(wt * 12) * swirl * wt;
     size = 1 - easeInCubic(wt);
-    spinExtra = wt * 14;
+    spinExtra = reduce ? 0 : wt * 14;
     if (size <= 0.01) return;
   }
   const appear = reduce ? 1 : clamp((now - (state.spawnT ?? -9)) / 0.4, 0, 1);
@@ -1307,7 +1228,8 @@ function drawPresent(ctx, session, state, now, reduce, contrast) {
 
   const echoing = session.level.maxGhosts > 0;
   const left = echoing ? session.level.echoSeconds - session.frame / 60 : 99;
-  const danger = !dead && !session.won && left < 3 ? 0.5 + 0.5 * Math.sin(now * 14) : 0;
+  const danger = !dead && !session.won && left < 3 ? (reduce ? 0.65 : 0.5 + 0.5 * Math.sin(now * 14)) : 0;
+  if (!reduce) drawRibbon(ctx, state.nowTrail, "#ffe3b5", 10, alpha);
 
   additive(ctx, () => {
     const trail = state.nowTrail;
@@ -1326,7 +1248,7 @@ function drawPresent(ctx, session, state, now, reduce, contrast) {
     }
   });
 
-  const st = session.won || dead ? { k: 0, angle: 0 } : stretchFor(ball.vx, ball.grounded ? 0 : ball.vy);
+  const st = session.won || dead || reduce ? { k: 0, angle: 0 } : stretchFor(ball.vx, ball.grounded ? 0 : ball.vy);
   const sx = 1 + fx.qy - fx.qx;
   const sy = 1 - fx.qy + fx.qx;
   ctx.save();
@@ -1359,6 +1281,15 @@ function drawPresent(ctx, session, state, now, reduce, contrast) {
   ctx.beginPath();
   ctx.arc(-RADIUS * 0.58, 0, 2.2, 0, TAU);
   ctx.fill();
+  ctx.restore();
+
+  // A small illuminated lens makes the present self recognizable at game scale.
+  ctx.save();
+  ctx.translate(Math.max(-4, Math.min(4, ball.vx / 85)), -1);
+  ctx.fillStyle = "#31434a";
+  ctx.beginPath(); ctx.ellipse(0, 0, 6.5, 5.5, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#b5ffed";
+  ctx.beginPath(); ctx.ellipse(1, -1, 3, 2.5, 0, 0, TAU); ctx.fill();
   ctx.restore();
 
   ctx.fillStyle = "rgba(255,255,255,0.85)";
@@ -1434,6 +1365,13 @@ function drawParticles(ctx, particles) {
         ctx.moveTo(p.x, p.y);
         ctx.lineTo(p.x - p.vx * 0.03, p.y - p.vy * 0.03);
         ctx.stroke();
+      } else if (p.kind === "ripple") {
+        ctx.globalAlpha = a * 0.6;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 1 + a * 2;
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, p.size, p.size * 0.17, 0, 0, TAU);
+        ctx.stroke();
       } else if (p.kind === "ring") {
         ctx.globalAlpha = a;
         ctx.strokeStyle = p.color;
@@ -1477,7 +1415,7 @@ function drawDust(ctx, now, reduce) {
       const speed = 6 + (i % 5) * 3;
       const x = hash(i + 40) * WORLD_W + (reduce ? 0 : Math.sin(now * 0.25 + i) * 30);
       const y = ((hash(i + 80) * WORLD_H - (reduce ? 0 : now * speed)) % WORLD_H + WORLD_H) % WORLD_H;
-      const tw = 0.5 + 0.5 * Math.sin(now * (0.7 + hash(i)) + i * 2);
+      const tw = reduce ? 0.5 : 0.5 + 0.5 * Math.sin(now * (0.7 + hash(i)) + i * 2);
       glow(ctx, x, y, 3 + hash(i + 7) * 3, "#f4e2c8", 0.05 + tw * 0.1);
     }
   });

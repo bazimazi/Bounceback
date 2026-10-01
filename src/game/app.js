@@ -57,6 +57,8 @@ export function createApp({ canvas, overlay, live }) {
     ballFx: { qx: 0, qy: 0, vx: 0, vy: 0, roll: 0, rimFlash: 0 },
     trails: [],
     nowTrail: [],
+    previousBall: null,
+    renderAlpha: 1,
     particles: [],
     doorAnim: {},
     doorVel: {},
@@ -204,6 +206,10 @@ export function createApp({ canvas, overlay, live }) {
         audio.bounce(event.speed);
         if (event.axis === "y") {
           if (event.speed > 120) fx.qy = Math.max(fx.qy, Math.min(0.34, event.speed / 1700));
+          if (event.speed > 180 && !reduced()) {
+            emit({ x: ball.x, y: ball.y + RADIUS, kind: "ripple", color: INK.brass,
+              size: 8, expand: Math.min(260, event.speed * 0.4), decay: 2.8, add: true });
+          }
           if (event.speed > 520) {
             burst(ball.x, ball.y + RADIUS, { count: 8, color: "rgba(190,180,165,0.5)", speed: 140, spread: Math.PI * 0.9, dir: -Math.PI / 2, size: 5, decay: 2.2, drag: 3, grow: 1.4 });
             kick(0, Math.min(4, event.speed / 260));
@@ -288,6 +294,7 @@ export function createApp({ canvas, overlay, live }) {
   }
 
   function resetFx() {
+    state.previousBall = null;
     state.trails = [];
     state.nowTrail = [];
     state.particles = [];
@@ -366,6 +373,7 @@ export function createApp({ canvas, overlay, live }) {
   }
 
   function respawnFx(color) {
+    state.previousBall = null;
     const spawn = level().spawn;
     state.spawnT = state.time + state.freeze;
     state.nowTrail = [];
@@ -426,6 +434,7 @@ export function createApp({ canvas, overlay, live }) {
       return;
     }
     const beforeX = session.ball.x;
+    state.previousBall = { x: session.ball.x, y: session.ball.y };
     const events = step(session, {
       x: steer(),
       drop: keys.down || touchDrop,
@@ -657,24 +666,29 @@ export function createApp({ canvas, overlay, live }) {
   function titleHtml(enter) {
     const has = progressCount() > 0;
     const pct = Math.round((progressCount() / levels.length) * 100);
-    const letters = "Bounceback".split("").map((c, i) => `<span style="--i:${i}">${c}</span>`).join("");
-    return `<div class="center${enter}"><div class="card title-card">
+    return `<div class="title-screen${enter}">
+      <header class="title-mast"><span class="brand-mark">${ICON.echo}<b>BOUNCEBACK</b></span><span class="edition">A TEMPORAL PUZZLE GAME</span><button class="icon-btn" data-act="settings" aria-label="Settings">${ICON.gear}</button></header>
+      <div class="card title-card">
       ${stagger([
-        `<p class="kicker">The Temporal Facility</p>`,
-        `<h1 class="logo" aria-label="Bounceback"><span aria-hidden="true">${letters}</span></h1>`,
-        `<p class="tag">Bounce through time, then cooperate with your past selves.</p>`,
+        `<p class="kicker"><span class="status-light"></span> The Temporal Observatory</p>`,
+        `<h1 class="logo">A little momentum.<br><em>A second chance.</em></h1>`,
+        `<p class="tag">Every attempt leaves an echo.<br>Bounce through time. Make your past selves<br class="desktop-break"> part of the solution.</p>`,
         `<div class="row">
-          ${has ? `<button class="primary big" data-act="continue">${ICON.play}Continue</button><button data-act="facility">${ICON.map}Facility</button>` : `<button class="primary big" data-act="begin">${ICON.play}Begin</button>`}
-          <button data-act="settings">${ICON.gear}Settings</button>
+          <button class="primary big" data-act="${has ? "continue" : "begin"}">${ICON.play}${has ? "Continue journey" : "Enter the observatory"}<span aria-hidden="true">↗</span></button>
+          <button class="ghost-btn" data-act="facility">${ICON.map}Chambers</button>
         </div>`,
-        `<ol class="beats">
-          <li><i class="beat-ball"></i><span><b>Steer.</b> The ball bounces on its own.</span></li>
-          <li><i class="beat-ball ghost"></i><span><b>Echo.</b> That run becomes a ghost that repeats you exactly.</span></li>
-          <li><i class="beat-ball chorus"></i><span><b>Cooperate.</b> Leave ghosts on plates, ferries, and each other.</span></li>
-        </ol>`,
         has ? `<div class="progress"><span class="bar"><span style="width:${pct}%"></span></span><span>${progressCount()} / ${levels.length} chambers</span></div>` : `<p class="press">Press <kbd>Enter</kbd> to begin</p>`,
       ])}
-    </div></div>`;
+      </div>
+      <footer class="title-bottom">
+        <ol class="beats">
+          <li><span class="step-no">01</span><i class="beat-ball"></i><span><b>Find your momentum</b><span>Steer. The bouncing is on us.</span></span></li>
+          <li><span class="step-no">02</span><i class="beat-ball ghost"></i><span><b>Leave an echo</b><span>Your last run becomes your ally.</span></span></li>
+          <li><span class="step-no">03</span><i class="beat-ball chorus"></i><span><b>Move forward, together</b><span>Some doors take more than one you.</span></span></li>
+        </ol>
+        <div class="title-colophon"><span>16 CHAMBERS <i>·</i> 9 SECTORS <i>·</i> ONE YOU. SORT OF.</span><span>TAKE YOUR TIME. THEN TAKE IT AGAIN.</span></div>
+      </footer>
+    </div>`;
   }
 
   function settingsHtml(enter) {
@@ -1104,6 +1118,7 @@ export function createApp({ canvas, overlay, live }) {
       state.mode = "clear";
       state.sig = "";
     }
+    state.renderAlpha = playing && state.freeze <= 0 && state.speed === 1 ? Math.min(1, acc / DT) : 1;
     present(dt);
 
     const rect = canvas.getBoundingClientRect();
