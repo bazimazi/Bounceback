@@ -1,10 +1,11 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import type { RenderState } from "../src/game/render.ts";
 
-const pageErrors = new WeakMap();
+const pageErrors = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page }) => {
   // Font availability must not make the game or these checks depend on a network.
   await page.route("https://fonts.googleapis.com/**", (route) => route.abort());
-  const errors = [];
+  const errors: string[] = [];
   pageErrors.set(page, errors);
   page.on("pageerror", (error) => errors.push(error.message));
 });
@@ -55,12 +56,14 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }
 test("all 16 chambers render, animate, and respect reduced motion", async ({ page }) => {
   await page.goto("/");
   const results = await page.evaluate(async () => {
-    const { levels } = await import("/src/game/levels.js");
-    const { createSession, step, commitEcho } = await import("/src/game/sim.js");
-    const { drawFrame, fitCamera } = await import("/src/game/render.js");
+    // Served by Vite; the variables keep TypeScript from resolving these as file paths.
+    const paths = { levels: "/src/game/levels.ts", sim: "/src/game/sim.ts", render: "/src/game/render.ts" };
+    const { levels }: typeof import("../src/game/levels.ts") = await import(paths.levels);
+    const { createSession, step, commitEcho }: typeof import("../src/game/sim.ts") = await import(paths.sim);
+    const { drawFrame, fitCamera }: typeof import("../src/game/render.ts") = await import(paths.render);
     const canvas = document.createElement("canvas");
     canvas.width = 1280; canvas.height = 720;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d")!;
     return levels.map((level) => {
       const session = createSession(level);
       for (let i = 0; i < 50; i++) step(session, { x: 1 });
@@ -74,10 +77,10 @@ test("all 16 chambers render, animate, and respect reduced motion", async ({ pag
         ballFx: { qx: 0, qy: 0, roll: 0, rimFlash: 0 },
         particles: [], trails: [], nowTrail: [], doorAnim: {}, plateAnim: {}, springAnim: {},
         levelT0: -10, spawnT: -10, renderAlpha: 0.5,
-      };
+      } as unknown as RenderState;
       const view = { width: 1280, height: 720, dpr: 1, state, session,
         cam: fitCamera(1280, 720, { top: 0, bottom: 0, side: 0 }) };
-      const render = (now) => {
+      const render = (now: number) => {
         drawFrame(ctx, { ...view, now });
         return canvas.toDataURL();
       };

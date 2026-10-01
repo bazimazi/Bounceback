@@ -1,30 +1,94 @@
-import { RADIUS, WORLD_H, WORLD_W } from "./constants.js";
-import { GHOST_STYLES, INK, rgba } from "./palette.js";
-import { ghostFrozen, ghostPosition, moverRect } from "./sim.js";
-import { chapterArt, drawObservatory, drawRibbon, drawTitleArt } from "./art.js";
+import { RADIUS, WORLD_H, WORLD_W } from "./constants.ts";
+import { GHOST_STYLES, INK, rgba } from "./palette.ts";
+import { ghostFrozen, ghostPosition, moverRect } from "./sim.ts";
+import { chapterArt, drawObservatory, drawRibbon, drawTitleArt } from "./art.ts";
+import type { GhostPattern } from "./palette.ts";
+import type {
+  AppState,
+  Camera,
+  Door,
+  Ghost,
+  Insets,
+  Level,
+  Mover,
+  Particle,
+  Plate,
+  PlateState,
+  Point,
+  Rect,
+  Session,
+  Solid,
+} from "./types.ts";
+
+type Ctx = CanvasRenderingContext2D;
+
+/** The slice of app state the renderer reads. */
+export type RenderState = Pick<
+  AppState,
+  | "mode"
+  | "session"
+  | "settings"
+  | "fx"
+  | "ballFx"
+  | "particles"
+  | "trails"
+  | "nowTrail"
+  | "previousBall"
+  | "doorAnim"
+  | "plateAnim"
+  | "springAnim"
+  | "levelT0"
+  | "spawnT"
+  | "winT0"
+  | "renderAlpha"
+  | "trans"
+>;
+
+export interface RenderView {
+  width: number;
+  height: number;
+  dpr: number;
+  state: RenderState;
+  now: number;
+  session: Session | null;
+  cam: Camera;
+}
+
+interface Wire {
+  plate: string;
+  dots: (Point & { d: number })[];
+  points: Point[];
+  kind: "door" | "mover";
+  length: number;
+}
+
+interface Geometry {
+  pads: Record<string, number>;
+  wires: Wire[];
+}
 
 const TAU = Math.PI * 2;
 const SHELL = new Set(["ceil", "wall-l", "wall-r"]);
 // plate badges float above the catch volume, clear of the NOW and echo tags
 const BADGE_LIFT = 76;
 
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const lerp = (a, b, t) => a + (b - a) * t;
-export const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
-export const easeInCubic = (t) => t * t * t;
-export const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-export const easeOutBack = (t) => {
+const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+export const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+export const easeInCubic = (t: number) => t * t * t;
+export const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+export const easeOutBack = (t: number) => {
   const c = 1.70158;
   return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2);
 };
 
-function hash(n) {
+function hash(n: number): number {
   const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
   return s - Math.floor(s);
 }
 
 // Smooth pseudo-noise in [-1, 1] for camera shake (sum of detuned sines, no per-frame jitter).
-function wave(t, seed) {
+function wave(t: number, seed: number): number {
   return (
     Math.sin(t * 13.1 + seed) * 0.5 +
     Math.sin(t * 27.7 + seed * 2.3) * 0.3 +
@@ -32,7 +96,7 @@ function wave(t, seed) {
   );
 }
 
-function roundRect(ctx, x, y, w, h, r) {
+function roundRect(ctx: Ctx, x: number, y: number, w: number, h: number, r: number) {
   const radius = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath();
   ctx.moveTo(x + radius, y);
@@ -44,13 +108,13 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 // Pre-rendered radial glow sprites, drawn additively. Much cheaper than shadowBlur.
-const sprites = new Map();
-function glowSprite(color) {
+const sprites = new Map<string, HTMLCanvasElement>();
+function glowSprite(color: string): HTMLCanvasElement {
   let sprite = sprites.get(color);
   if (sprite) return sprite;
   sprite = document.createElement("canvas");
   sprite.width = sprite.height = 128;
-  const g = sprite.getContext("2d");
+  const g = sprite.getContext("2d")!;
   const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
   grad.addColorStop(0, rgba(color, 1));
   grad.addColorStop(0.22, rgba(color, 0.5));
@@ -62,25 +126,25 @@ function glowSprite(color) {
   return sprite;
 }
 
-function glow(ctx, x, y, r, color, alpha) {
+function glow(ctx: Ctx, x: number, y: number, r: number, color: string, alpha: number) {
   if (alpha <= 0.003 || r <= 0.5) return;
   ctx.globalAlpha = Math.min(1, alpha);
   ctx.drawImage(glowSprite(color), x - r, y - r, r * 2, r * 2);
 }
 
-function additive(ctx, fn) {
+function additive(ctx: Ctx, fn: () => void) {
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
   fn();
   ctx.restore();
 }
 
-let grain = null;
-function grainPattern(ctx) {
+let grain: CanvasPattern | null = null;
+function grainPattern(ctx: Ctx): CanvasPattern | null {
   if (grain) return grain;
   const tile = document.createElement("canvas");
   tile.width = tile.height = 96;
-  const g = tile.getContext("2d");
+  const g = tile.getContext("2d")!;
   const img = g.createImageData(96, 96);
   for (let i = 0; i < img.data.length; i += 4) {
     const v = Math.floor(hash(i * 0.37) * 255);
@@ -92,7 +156,7 @@ function grainPattern(ctx) {
   return grain;
 }
 
-export function fitCamera(width, height, insets) {
+export function fitCamera(width: number, height: number, insets: Insets): Camera {
   const side = insets.side ?? 12;
   const availW = Math.max(1, width - side * 2);
   const availH = Math.max(1, height - insets.top - insets.bottom);
@@ -104,15 +168,15 @@ export function fitCamera(width, height, insets) {
   };
 }
 
-export function worldToScreen(cam, x, y) {
+export function worldToScreen(cam: Camera, x: number, y: number): Point {
   return { x: cam.ox + x * cam.scale, y: cam.oy + y * cam.scale };
 }
 
 /* ---------- per-level geometry caches ---------- */
 
-const levelCache = new WeakMap();
+const levelCache = new WeakMap<Level, Geometry>();
 
-function surfaceBelow(level, x, y) {
+function surfaceBelow(level: Level, x: number, y: number): number {
   let best = Infinity;
   for (const s of level.solids) {
     if (x >= s.x && x <= s.x + s.w && s.y >= y - 4 && s.y < best) best = s.y;
@@ -120,18 +184,18 @@ function surfaceBelow(level, x, y) {
   return best;
 }
 
-function geometry(level) {
+function geometry(level: Level): Geometry {
   let geo = levelCache.get(level);
   if (geo) return geo;
-  const pads = {};
+  const pads: Record<string, number> = {};
   for (const plate of level.plates) {
     const below = surfaceBelow(level, plate.x + plate.w / 2, plate.y);
     pads[plate.id] = Math.min(below, plate.y + plate.h);
   }
-  const wires = [];
-  const busUse = new Map();
-  const addWire = (plate, points, kind) => {
-    const dots = [];
+  const wires: Wire[] = [];
+  const busUse = new Map<string, number>();
+  const addWire = (plate: Plate, points: Point[], kind: Wire["kind"]) => {
+    const dots: Wire["dots"] = [];
     let travelled = 0;
     for (let i = 1; i < points.length; i++) {
       const a = points[i - 1];
@@ -173,8 +237,8 @@ function geometry(level) {
   return geo;
 }
 
-const ghostPaths = new WeakMap();
-function ghostPath(ghost) {
+const ghostPaths = new WeakMap<Ghost, { path: Path2D; end: Point }>();
+function ghostPath(ghost: Ghost): { path: Path2D; end: Point } {
   let entry = ghostPaths.get(ghost);
   if (entry) return entry;
   const path = new Path2D();
@@ -188,9 +252,9 @@ function ghostPath(ghost) {
   return entry;
 }
 
-function groundBelow(session, x, y) {
+function groundBelow(session: Session, x: number, y: number): number {
   let best = WORLD_H + 200;
-  const test = (r) => {
+  const test = (r: Rect) => {
     if (x >= r.x && x <= r.x + r.w && r.y >= y - 2 && r.y < best) best = r.y;
   };
   for (const s of session.level.solids) test(s);
@@ -201,7 +265,7 @@ function groundBelow(session, x, y) {
 
 /* ---------- entry point ---------- */
 
-export function drawFrame(ctx, view) {
+export function drawFrame(ctx: Ctx, view: RenderView): void {
   const { width, height, dpr, state, now, session, cam } = view;
   const reduce = state.settings.reducedMotion;
   const contrast = state.settings.highContrast;
@@ -244,7 +308,7 @@ export function drawFrame(ctx, view) {
 
 /* ---------- screen space ---------- */
 
-function drawBackdrop(ctx, w, h, now, reduce) {
+function drawBackdrop(ctx: Ctx, w: number, h: number, now: number, reduce: boolean) {
   const g = ctx.createRadialGradient(w / 2, h * 0.42, 0, w / 2, h * 0.42, Math.hypot(w, h) * 0.62);
   g.addColorStop(0, "#172e38");
   g.addColorStop(0.5, "#0c1b25");
@@ -272,7 +336,7 @@ function drawBackdrop(ctx, w, h, now, reduce) {
   });
 }
 
-function drawWorldFrame(ctx, cam, w, h) {
+function drawWorldFrame(ctx: Ctx, cam: Camera, w: number, h: number) {
   ctx.save();
   ctx.fillStyle = "rgba(0,0,0,0.55)";
   roundRect(ctx, cam.ox - 2, cam.oy + 6, w + 4, h + 8, 10);
@@ -301,7 +365,15 @@ function drawWorldFrame(ctx, cam, w, h) {
   ctx.restore();
 }
 
-function drawWorldPost(ctx, cam, w, h, state, now, reduce) {
+function drawWorldPost(
+  ctx: Ctx,
+  cam: Camera,
+  w: number,
+  h: number,
+  state: RenderState,
+  now: number,
+  reduce: boolean,
+) {
   const fx = state.fx;
   ctx.save();
   ctx.beginPath();
@@ -326,13 +398,13 @@ function drawWorldPost(ctx, cam, w, h, state, now, reduce) {
     ctx.fillRect(cam.ox, cam.oy, w, h);
   }
   ctx.globalAlpha = 0.035;
-  ctx.fillStyle = grainPattern(ctx);
+  ctx.fillStyle = grainPattern(ctx)!;
   ctx.translate(reduce ? 0 : Math.floor(hash(Math.floor(now * 24)) * 96), reduce ? 0 : Math.floor(hash(Math.floor(now * 24) + 1) * 96));
   ctx.fillRect(cam.ox - 96, cam.oy - 96, w + 192, h + 192);
   ctx.restore();
 }
 
-function drawVignette(ctx, w, h) {
+function drawVignette(ctx: Ctx, w: number, h: number) {
   const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.hypot(w, h) * 0.6);
   g.addColorStop(0, "rgba(0,0,0,0)");
   g.addColorStop(1, "rgba(0,0,0,0.55)");
@@ -340,7 +412,7 @@ function drawVignette(ctx, w, h) {
   ctx.fillRect(0, 0, w, h);
 }
 
-function drawIris(ctx, w, h, state, reduce) {
+function drawIris(ctx: Ctx, w: number, h: number, state: RenderState, reduce: boolean) {
   const trans = state.trans;
   if (!trans) return;
   const t = clamp(trans.t, 0, 1);
@@ -377,7 +449,7 @@ function drawIris(ctx, w, h, state, reduce) {
 
 /* ---------- world space ---------- */
 
-function drawScene(ctx, session, state, now, reduce, contrast) {
+function drawScene(ctx: Ctx, session: Session, state: RenderState, now: number, reduce: boolean, contrast: boolean) {
   const level = session.level;
   const geo = geometry(level);
   const intro = reduce ? 1 : clamp((now - (state.levelT0 ?? -9)) / 0.85, 0, 1);
@@ -428,7 +500,7 @@ function drawScene(ctx, session, state, now, reduce, contrast) {
   drawDust(ctx, now, reduce);
 }
 
-function drawPlaques(ctx, level) {
+function drawPlaques(ctx: Ctx, level: Level) {
   ctx.save();
   ctx.font = "650 13px Outfit, Segoe UI, sans-serif";
   ctx.textBaseline = "alphabetic";
@@ -447,7 +519,7 @@ function drawPlaques(ctx, level) {
 }
 
 // Indicator dots in the spirit of Portal: dim when idle, lit and flowing when powered.
-function drawWires(ctx, session, geo, now, reduce) {
+function drawWires(ctx: Ctx, session: Session, geo: Geometry, now: number, reduce: boolean) {
   for (const wire of geo.wires) {
     const on = session.plates[wire.plate]?.active;
     ctx.fillStyle = on ? "rgba(61,222,196,0.55)" : "rgba(224,176,122,0.2)";
@@ -467,7 +539,7 @@ function drawWires(ctx, session, geo, now, reduce) {
   }
 }
 
-function drawRails(ctx, session) {
+function drawRails(ctx: Ctx, session: Session) {
   ctx.save();
   for (const mover of session.movers) {
     const y = mover.y + mover.h / 2;
@@ -493,7 +565,7 @@ function drawRails(ctx, session) {
   ctx.restore();
 }
 
-function drawGhostPath(ctx, ghost, index, session) {
+function drawGhostPath(ctx: Ctx, ghost: Ghost, index: number, session: Session) {
   if (!ghost.frames.length) return;
   const style = GHOST_STYLES[index % GHOST_STYLES.length];
   const { path, end } = ghostPath(ghost);
@@ -513,7 +585,7 @@ function drawGhostPath(ctx, ghost, index, session) {
   ctx.restore();
 }
 
-function drawGoal(ctx, goal, session, state, now, reduce) {
+function drawGoal(ctx: Ctx, goal: Rect, session: Session, state: RenderState, now: number, reduce: boolean) {
   if (!goal) return;
   const cx = goal.x + goal.w / 2;
   const cy = goal.y + goal.h / 2;
@@ -630,7 +702,7 @@ function drawGoal(ctx, goal, session, state, now, reduce) {
   ctx.stroke();
 }
 
-function drawHazard(ctx, hazard, now, reduce) {
+function drawHazard(ctx: Ctx, hazard: Rect, now: number, reduce: boolean) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(hazard.x, hazard.y - 40, hazard.w, hazard.h + 40);
@@ -666,7 +738,7 @@ function drawHazard(ctx, hazard, now, reduce) {
   ctx.restore();
 }
 
-function drawSolid(ctx, solid, contrast, state, now, reduce) {
+function drawSolid(ctx: Ctx, solid: Solid, contrast: boolean, state: RenderState, now: number, reduce: boolean) {
   const { x, y, w, h } = solid;
   if (solid.grate) return drawGrate(ctx, solid, now, reduce);
   if (solid.surface === "spring") return drawSpring(ctx, solid, state.springAnim[solid.id] ?? 0, now, reduce);
@@ -751,7 +823,7 @@ function drawSolid(ctx, solid, contrast, state, now, reduce) {
       ctx.fill();
       ctx.fillStyle = "rgba(143,211,213,0.12)";
       for (let vent = 0; vent < 5; vent++) ctx.fillRect(px + 9 + vent * 7, y + 31, 2, 14);
-      ctx.fillStyle = rgba(chapterArt(state.session.level.chapter).light, 0.6);
+      ctx.fillStyle = rgba(chapterArt(state.session!.level.chapter).light, 0.6);
       ctx.fillRect(px + 72, y + 34, 10, 2);
     }
     ctx.fillStyle = "rgba(224,176,122,0.12)";
@@ -760,7 +832,7 @@ function drawSolid(ctx, solid, contrast, state, now, reduce) {
   }
 }
 
-function drawGrate(ctx, solid, now, reduce) {
+function drawGrate(ctx: Ctx, solid: Solid, now: number, reduce: boolean) {
   const { x, y, w, h } = solid;
   ctx.fillStyle = "rgba(8,10,15,0.55)";
   ctx.fillRect(x, y, w, h);
@@ -785,7 +857,7 @@ function drawGrate(ctx, solid, now, reduce) {
   ctx.stroke();
 }
 
-function drawSpring(ctx, solid, anim, now, reduce) {
+function drawSpring(ctx: Ctx, solid: Solid, anim: number, now: number, reduce: boolean) {
   const { x, y, w, h } = solid;
   const housing = ctx.createLinearGradient(0, y, 0, y + h);
   housing.addColorStop(0, "#5a3322");
@@ -832,7 +904,7 @@ function drawSpring(ctx, solid, anim, now, reduce) {
   });
 }
 
-function drawMover(ctx, mover, session, now, reduce) {
+function drawMover(ctx: Ctx, mover: Mover, session: Session, now: number, reduce: boolean) {
   const r = moverRect(mover);
   const powered = !mover.requires || session.plates[mover.requires]?.active;
   const color = powered ? INK.teal : INK.danger;
@@ -867,7 +939,7 @@ function drawMover(ctx, mover, session, now, reduce) {
   });
 }
 
-function drawDoor(ctx, door, open, logicalOpen, contrast) {
+function drawDoor(ctx: Ctx, door: Door, open: number, logicalOpen: boolean, contrast: boolean) {
   const closedH = door.h * (1 - clamp(open, 0, 1));
   // guide rails
   ctx.fillStyle = "#0e1118";
@@ -933,7 +1005,7 @@ function drawDoor(ctx, door, open, logicalOpen, contrast) {
   ctx.fillRect(door.x + door.w / 2 - 6, door.y + 3, 12, 3);
 }
 
-function plateIcon(ctx, plate, color) {
+function plateIcon(ctx: Ctx, plate: Plate, color: string) {
   ctx.strokeStyle = color;
   ctx.fillStyle = color;
   ctx.lineWidth = 1.8;
@@ -974,7 +1046,16 @@ function plateIcon(ctx, plate, color) {
   }
 }
 
-function drawPlate(ctx, plate, rt, padY, anim, session, now, reduce) {
+function drawPlate(
+  ctx: Ctx,
+  plate: Plate,
+  rt: PlateState,
+  padY: number,
+  anim: number,
+  session: Session,
+  now: number,
+  reduce: boolean,
+) {
   const color = rt.rejected ? INK.danger : rt.active ? INK.teal : rt.occupied ? INK.spring : INK.brass;
   const top = plate.y;
   const fieldH = padY - top;
@@ -1059,7 +1140,7 @@ function drawPlate(ctx, plate, rt, padY, anim, session, now, reduce) {
 
 /* ---------- actors ---------- */
 
-function drawTag(ctx, x, y, text, color, alpha = 1, caret = false) {
+function drawTag(ctx: Ctx, x: number, y: number, text: string, color: string, alpha = 1, caret = false) {
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.font = "700 11px Outfit, Segoe UI, sans-serif";
@@ -1086,7 +1167,7 @@ function drawTag(ctx, x, y, text, color, alpha = 1, caret = false) {
   ctx.restore();
 }
 
-function drawPattern(ctx, pattern, r, color) {
+function drawPattern(ctx: Ctx, pattern: GhostPattern, r: number, color: string) {
   ctx.save();
   ctx.strokeStyle = color;
   ctx.fillStyle = color;
@@ -1122,7 +1203,7 @@ function drawPattern(ctx, pattern, r, color) {
   ctx.restore();
 }
 
-function drawShadow(ctx, session, x, y, alpha) {
+function drawShadow(ctx: Ctx, session: Session, x: number, y: number, alpha: number) {
   const gy = groundBelow(session, x, y + RADIUS - 2);
   const lift = gy - (y + RADIUS);
   if (lift > 260 || lift < -4) return;
@@ -1133,13 +1214,22 @@ function drawShadow(ctx, session, x, y, alpha) {
   ctx.fill();
 }
 
-function stretchFor(vx, vy) {
+function stretchFor(vx: number, vy: number): { k: number; angle: number } {
   const speed = Math.hypot(vx, vy);
   const k = clamp(speed / 2400, 0, 0.2);
   return { k, angle: Math.atan2(vy, vx) };
 }
 
-function drawGhost(ctx, ghost, index, session, state, now, reduce, contrast) {
+function drawGhost(
+  ctx: Ctx,
+  ghost: Ghost,
+  index: number,
+  session: Session,
+  state: RenderState,
+  now: number,
+  reduce: boolean,
+  contrast: boolean,
+) {
   const style = GHOST_STYLES[index % GHOST_STYLES.length];
   const frame = Math.min(session.frame, ghost.frames.length - 1);
   const current = ghost.frames[frame] || ghostPosition(ghost, session.frame);
@@ -1196,7 +1286,7 @@ function drawGhost(ctx, ghost, index, session, state, now, reduce, contrast) {
   drawTag(ctx, pos.x, pos.y - RADIUS - 16, frozen ? `${style.label} ‖` : style.label, style.color, frozen ? 0.6 : 0.95);
 }
 
-function drawPresent(ctx, session, state, now, reduce, contrast) {
+function drawPresent(ctx: Ctx, session: Session, state: RenderState, now: number, reduce: boolean, contrast: boolean) {
   const ball = session.ball;
   const fx = state.ballFx;
   const prev = state.previousBall || ball;
@@ -1320,7 +1410,7 @@ function drawPresent(ctx, session, state, now, reduce, contrast) {
   if (showTag && !dead) drawTag(ctx, x, y - RADIUS - 20, "NOW", INK.bone, appear, true);
 }
 
-function drawParticles(ctx, particles) {
+function drawParticles(ctx: Ctx, particles: Particle[]) {
   if (!particles.length) return;
   ctx.save();
   for (const p of particles) {
@@ -1387,7 +1477,7 @@ function drawParticles(ctx, particles) {
 }
 
 // On Echo, the trace just recorded rewinds back into the spawn point.
-function drawRewindPath(ctx, state) {
+function drawRewindPath(ctx: Ctx, state: RenderState) {
   const fx = state.fx;
   if (!fx.rewindFrames || fx.rewind <= 0) return;
   const frames = fx.rewindFrames;
@@ -1409,7 +1499,7 @@ function drawRewindPath(ctx, state) {
   });
 }
 
-function drawDust(ctx, now, reduce) {
+function drawDust(ctx: Ctx, now: number, reduce: boolean) {
   additive(ctx, () => {
     for (let i = 0; i < 36; i++) {
       const speed = 6 + (i % 5) * 3;

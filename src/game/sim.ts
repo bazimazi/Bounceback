@@ -13,15 +13,31 @@ import {
   SLEEP_VX,
   STICK_VY,
   WALL_REST,
-} from "./constants.js";
+} from "./constants.ts";
+import type {
+  Ball,
+  Box,
+  DoorState,
+  EchoResult,
+  Ghost,
+  Input,
+  Level,
+  Mover,
+  Plate,
+  PlateState,
+  Point,
+  Rect,
+  Session,
+  SimEvent,
+} from "./types.ts";
 
 const SUBSTEPS = 2;
 
-function clamp(v, a, b) {
+function clamp(v: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, v));
 }
 
-export function circleHitsRect(x, y, r, rect) {
+export function circleHitsRect(x: number, y: number, r: number, rect: Rect): boolean {
   const nx = clamp(x, rect.x, rect.x + rect.w);
   const ny = clamp(y, rect.y, rect.y + rect.h);
   const dx = x - nx;
@@ -29,7 +45,7 @@ export function circleHitsRect(x, y, r, rect) {
   return dx * dx + dy * dy <= r * r;
 }
 
-export function moverRect(mover) {
+export function moverRect(mover: Mover): Box & { id: string; mover: true } {
   const period = Math.max(2, mover.period);
   const t = ((mover.clock % period) + period) % period;
   const half = period / 2;
@@ -46,7 +62,7 @@ export function moverRect(mover) {
   };
 }
 
-function blankPlate() {
+function blankPlate(): PlateState {
   return {
     occupied: false,
     active: false,
@@ -59,11 +75,11 @@ function blankPlate() {
   };
 }
 
-function blankDoor() {
+function blankDoor(): DoorState {
   return { open: false, latched: false };
 }
 
-export function createSession(level) {
+export function createSession(level: Level): Session {
   return {
     level,
     frame: 0,
@@ -74,6 +90,8 @@ export function createSession(level) {
       vx: 0,
       vy: 0,
       r: RADIUS,
+      prevX: level.spawn.x,
+      prevY: level.spawn.y,
       alive: true,
       grounded: false,
       groundId: null,
@@ -92,25 +110,26 @@ export function createSession(level) {
   };
 }
 
-export function ghostPosition(ghost, frame) {
+export function ghostPosition(ghost: Ghost, frame: number): Point {
   if (!ghost.frames.length) return { x: 0, y: 0 };
   const i = Math.min(frame, ghost.frames.length - 1);
   return ghost.frames[i];
 }
 
-export function ghostFrozen(ghost, frame) {
+export function ghostFrozen(ghost: Ghost, frame: number): boolean {
   return frame >= ghost.frames.length - 1;
 }
 
-function resetAttempt(session) {
+function resetAttempt(session: Session): void {
   const ghosts = session.ghosts;
   const next = createSession(session.level);
   next.ghosts = ghosts;
-  for (const key of Object.keys(session)) delete session[key];
+  const loose: Partial<Session> = session;
+  for (const key of Object.keys(session) as (keyof Session)[]) delete loose[key];
   Object.assign(session, next);
 }
 
-export function commitEcho(session) {
+export function commitEcho(session: Session): EchoResult {
   if (session.won) return { ok: false, reason: "won" };
   if (session.ghosts.length >= session.level.maxGhosts) return { ok: false, reason: "full" };
   if (session.recording.length < 10) return { ok: false, reason: "short" };
@@ -121,23 +140,23 @@ export function commitEcho(session) {
   return { ok: true };
 }
 
-export function discardAttempt(session) {
+export function discardAttempt(session: Session): void {
   if (session.won) return;
   resetAttempt(session);
 }
 
-export function restartAll(session) {
+export function restartAll(session: Session): void {
   session.ghosts = [];
   resetAttempt(session);
 }
 
-export function eraseFrom(session, index) {
+export function eraseFrom(session: Session, index: number): void {
   session.ghosts = session.ghosts.slice(0, Math.max(0, index));
   resetAttempt(session);
 }
 
-function solidsFor(session, drop) {
-  const list = [];
+function solidsFor(session: Session, drop: boolean): Box[] {
+  const list: Box[] = [];
   for (const solid of session.level.solids) {
     if (drop && solid.grate) continue;
     list.push(solid);
@@ -149,7 +168,7 @@ function solidsFor(session, drop) {
   return list;
 }
 
-function overlap(ball, box) {
+function overlap(ball: Ball, box: Box): boolean {
   const cx = clamp(ball.x, box.x, box.x + box.w);
   const cy = clamp(ball.y, box.y, box.y + box.h);
   const dx = ball.x - cx;
@@ -157,7 +176,7 @@ function overlap(ball, box) {
   return dx * dx + dy * dy < ball.r * ball.r - 0.05;
 }
 
-function resolveHorizontal(ball, box, events) {
+function resolveHorizontal(ball: Ball, box: Box, events: SimEvent[]): boolean {
   if (!overlap(ball, box)) return false;
   const prevBottom = ball.prevY + ball.r;
   const prevTop = ball.prevY - ball.r;
@@ -181,7 +200,7 @@ function resolveHorizontal(ball, box, events) {
   return true;
 }
 
-function resolveVertical(ball, box, events) {
+function resolveVertical(ball: Ball, box: Box, events: SimEvent[]): boolean {
   if (!overlap(ball, box)) return false;
   const prevBottom = ball.prevY + ball.r;
   const prevTop = ball.prevY - ball.r;
@@ -224,7 +243,7 @@ function resolveVertical(ball, box, events) {
   return false;
 }
 
-function collideGhosts(ball, session, events) {
+function collideGhosts(ball: Ball, session: Session, events: SimEvent[]): void {
   if (!session.level.ghostSolid) return;
   for (let i = 0; i < session.ghosts.length; i++) {
     const g = ghostPosition(session.ghosts[i], session.frame);
@@ -276,7 +295,7 @@ function collideGhosts(ball, session, events) {
   }
 }
 
-function plateOccupied(plate, session) {
+function plateOccupied(plate: Plate, session: Session): { on: boolean; rejected: boolean } {
   let present = false;
   let ghost = false;
   if (session.ball.alive && circleHitsRect(session.ball.x, session.ball.y, session.ball.r, plate)) {
@@ -291,11 +310,11 @@ function plateOccupied(plate, session) {
   return { on: present || ghost, rejected: false };
 }
 
-function linkedPlates(session, doorId) {
+function linkedPlates(session: Session, doorId: string): Plate[] {
   return session.level.plates.filter((p) => (p.targets || []).includes(doorId));
 }
 
-function updatePlates(session) {
+function updatePlates(session: Session): void {
   const now = session.time;
   for (const plate of session.level.plates) {
     const rt = session.plates[plate.id];
@@ -327,13 +346,13 @@ function updatePlates(session) {
   }
 }
 
-function plateAllows(session, plate) {
+function plateAllows(session: Session, plate: Plate): boolean {
   if (!plate.requires) return true;
   const req = session.plates[plate.requires];
   return !!req?.latched || !!req?.active;
 }
 
-function updateDoors(session, events) {
+function updateDoors(session: Session, events: SimEvent[]): void {
   for (const door of session.level.doors) {
     const rt = session.doors[door.id];
     const flags = linkedPlates(session, door.id).map((p) => {
@@ -355,14 +374,14 @@ function updateDoors(session, events) {
   }
 }
 
-function updateMovers(session) {
+function updateMovers(session: Session): void {
   for (const mover of session.movers) {
     if (mover.requires && !session.plates[mover.requires]?.active) continue;
     mover.clock += 1;
   }
 }
 
-function checkEnd(session, events) {
+function checkEnd(session: Session, events: SimEvent[]): void {
   const ball = session.ball;
   if (!ball.alive || session.won) return;
   for (const hazard of session.level.hazards || []) {
@@ -385,7 +404,7 @@ function checkEnd(session, events) {
   }
 }
 
-function integrate(session, input, sdt, events) {
+function integrate(session: Session, input: Input, sdt: number, events: SimEvent[]): void {
   const ball = session.ball;
   if (!ball.alive) return;
   if (ball.springLock > 0) ball.springLock -= sdt / DT;
@@ -422,19 +441,19 @@ function integrate(session, input, sdt, events) {
   collideGhosts(ball, session, events);
 }
 
-export function step(session, input = {}) {
-  const events = [];
+export function step(session: Session, input: Input = {}): SimEvent[] {
+  const events: SimEvent[] = [];
   if (session.won) return events;
   if (!session.ball.alive) return events;
 
-  const carry = new Map();
+  const carry = new Map<string, Rect>();
   for (const mover of session.movers) {
     const before = moverRect(mover);
     carry.set(mover.id, before);
   }
   updateMovers(session);
   for (const mover of session.movers) {
-    const before = carry.get(mover.id);
+    const before = carry.get(mover.id)!;
     const after = moverRect(mover);
     if (session.ball.groundId === mover.id) {
       session.ball.x += after.x - before.x;
@@ -462,6 +481,6 @@ export function step(session, input = {}) {
   return events;
 }
 
-export function echoLimit(level) {
+export function echoLimit(level: Level): number {
   return Math.round((level.echoSeconds ?? 16) * 60);
 }

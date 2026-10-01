@@ -1,9 +1,9 @@
-import { chapters, levels, nextLevel } from "./levels.js";
-import { GHOST_STYLES, INK } from "./palette.js";
-import { RADIUS } from "./constants.js";
-import { createAudio } from "./audio.js";
-import { loadSave, medalFor, writeSave } from "./save.js";
-import { drawFrame, easeOutCubic, fitCamera, worldToScreen } from "./render.js";
+import { chapters, levels, nextLevel } from "./levels.ts";
+import { GHOST_STYLES, INK } from "./palette.ts";
+import { RADIUS } from "./constants.ts";
+import { createAudio } from "./audio.ts";
+import { loadSave, medalFor, writeSave } from "./save.ts";
+import { drawFrame, easeOutCubic, fitCamera, worldToScreen } from "./render.ts";
 import {
   commitEcho,
   createSession,
@@ -13,7 +13,32 @@ import {
   ghostPosition,
   restartAll,
   step,
-} from "./sim.js";
+} from "./sim.ts";
+import type { AppState, Chapter, ClearResult, Level, Medal, Particle, Point, Session, SimEvent, Solid } from "./types.ts";
+
+interface AppElements {
+  canvas: HTMLCanvasElement;
+  overlay: HTMLElement;
+  live: HTMLElement;
+}
+
+type ParticleInit = Pick<Particle, "x" | "y" | "color"> & Partial<Particle>;
+
+interface BurstOptions {
+  count: number;
+  color: string | string[];
+  speed: number;
+  size: number;
+  spread?: number;
+  dir?: number;
+  kind?: Particle["kind"];
+  add?: boolean;
+  decay?: number;
+  grav?: number;
+  drag?: number;
+  grow?: number;
+  alpha?: number;
+}
 
 const DT = 1 / 60;
 const TAU = Math.PI * 2;
@@ -38,13 +63,13 @@ const ICON = {
   play: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14l12-7z"/></svg>`,
 };
 
-export function createApp({ canvas, overlay, live }) {
+export function createApp({ canvas, overlay, live }: AppElements): AppState {
   const save = loadSave();
   const audio = createAudio();
   const keys = { left: false, right: false, down: false };
-  const pointers = new Map();
+  const pointers = new Map<number, number>();
   let touchDrop = false;
-  const state = {
+  const state: AppState = {
     mode: "title",
     settings: save.settings,
     levelIndex: 0,
@@ -82,19 +107,19 @@ export function createApp({ canvas, overlay, live }) {
     lastTick: 99,
     lastChips: 0,
   };
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d")!;
   overlay.innerHTML = `<div id="screen"></div><p class="toast" id="toast"></p><div class="intro" id="intro"></div>`;
-  const screen = overlay.querySelector("#screen");
-  const toastEl = overlay.querySelector("#toast");
-  const introEl = overlay.querySelector("#intro");
+  const screen = overlay.querySelector<HTMLElement>("#screen")!;
+  const toastEl = overlay.querySelector<HTMLElement>("#toast")!;
+  const introEl = overlay.querySelector<HTMLElement>("#intro")!;
   let shownMessage = "";
   applySettings();
 
-  function say(text) {
+  function say(text: string) {
     live.textContent = text;
   }
 
-  function note(text, seconds = 2.6) {
+  function note(text: string, seconds = 2.6) {
     state.message = text;
     state.messageT = seconds;
     say(text);
@@ -109,7 +134,7 @@ export function createApp({ canvas, overlay, live }) {
     writeSave(save);
   }
 
-  function buzz(ms) {
+  function buzz(ms: VibratePattern) {
     if (!state.settings.haptics || state.settings.reducedMotion) return;
     navigator.vibrate?.(ms);
   }
@@ -118,8 +143,8 @@ export function createApp({ canvas, overlay, live }) {
     return levels[state.levelIndex];
   }
 
-  function chapterOf(item) {
-    return chapters.find((chapter) => chapter.id === item.chapter);
+  function chapterOf(item: Level): Chapter {
+    return chapters.find((chapter) => chapter.id === item.chapter)!;
   }
 
   function progressCount() {
@@ -137,27 +162,27 @@ export function createApp({ canvas, overlay, live }) {
     return state.settings.reducedMotion;
   }
 
-  function addTrauma(amount) {
+  function addTrauma(amount: number) {
     state.fx.trauma = Math.min(1, state.fx.trauma + amount);
   }
 
-  function kick(x, y) {
+  function kick(x: number, y: number) {
     state.fx.kickX += x;
     state.fx.kickY += y;
   }
 
-  function hitstop(seconds) {
+  function hitstop(seconds: number) {
     if (!reduced()) state.freeze = Math.max(state.freeze, seconds);
   }
 
-  function emit(particle) {
+  function emit(particle: ParticleInit) {
     state.particles.push({
       life: 1, decay: 1.6, vx: 0, vy: 0, grav: 0, drag: 0, rot: 0, vr: 0,
       size: 3, kind: "dot", add: false, expand: 0, ...particle,
     });
   }
 
-  function burst(x, y, opts) {
+  function burst(x: number, y: number, opts: BurstOptions) {
     const count = reduced() ? Math.min(3, opts.count) : opts.count;
     const spread = opts.spread ?? TAU;
     const dir = opts.dir ?? 0;
@@ -183,11 +208,11 @@ export function createApp({ canvas, overlay, live }) {
     }
   }
 
-  function ring(x, y, color, size = 10, expand = 220, decay = 2.2, add = true) {
+  function ring(x: number, y: number, color: string, size = 10, expand = 220, decay = 2.2, add = true) {
     emit({ x, y, kind: "ring", color, size, expand, decay, add });
   }
 
-  function springUnder(session) {
+  function springUnder(session: Session): Solid | undefined {
     const ball = session.ball;
     return session.level.solids.find((solid) =>
       (solid.surface === "spring" || solid.surface === "bumper") &&
@@ -195,8 +220,8 @@ export function createApp({ canvas, overlay, live }) {
       Math.abs(ball.y + RADIUS - solid.y) < 60);
   }
 
-  function react(events) {
-    const session = state.session;
+  function react(events: SimEvent[]) {
+    const session = state.session!;
     const ball = session.ball;
     const fx = state.ballFx;
     let bounced = false;
@@ -281,12 +306,12 @@ export function createApp({ canvas, overlay, live }) {
 
   /* ---------- flow ---------- */
 
-  function screenPoint(x, y) {
+  function screenPoint(x: number, y: number): Partial<Point> {
     if (!state.cam) return { x: undefined, y: undefined };
     return worldToScreen(state.cam, x, y);
   }
 
-  function transition(fn, from) {
+  function transition(fn: () => void, from?: Partial<Point> | null) {
     if (state.trans) return;
     const at = from || {};
     state.trans = { phase: "out", t: 0, cx: at.x, cy: at.y, fn };
@@ -308,7 +333,7 @@ export function createApp({ canvas, overlay, live }) {
     state.fx.trauma = 0;
   }
 
-  function openLevel(index) {
+  function openLevel(index: number) {
     state.levelIndex = index;
     state.session = createSession(levels[index]);
     state.speed = 1;
@@ -348,7 +373,7 @@ export function createApp({ canvas, overlay, live }) {
     say(`${item.name}. ${item.objective}`);
   }
 
-  function restartAnim(el, cls) {
+  function restartAnim(el: HTMLElement, cls: string) {
     el.classList.remove(cls);
     void el.offsetWidth;
     el.classList.add(cls);
@@ -372,7 +397,7 @@ export function createApp({ canvas, overlay, live }) {
     if (state.nowTrail.length > 9) state.nowTrail.shift();
   }
 
-  function respawnFx(color) {
+  function respawnFx(color: string) {
     state.previousBall = null;
     const spawn = level().spawn;
     state.spawnT = state.time + state.freeze;
@@ -382,7 +407,7 @@ export function createApp({ canvas, overlay, live }) {
   }
 
   function tryEcho() {
-    const session = state.session;
+    const session = state.session!;
     const before = session.ghosts.length;
     const res = commitEcho(session);
     if (!res.ok) {
@@ -453,13 +478,13 @@ export function createApp({ canvas, overlay, live }) {
   }
 
   function bank() {
-    const session = state.session;
+    const session = state.session!;
     const item = session.level;
     const seconds = Math.round((session.winFrame / 60) * 10) / 10;
     const ghosts = session.ghosts.length;
     const earned = medalFor(item, ghosts, seconds);
     const had = save.cleared[item.id];
-    const prev = had || { medals: [], bestTime: 999, bestGhosts: 99 };
+    const prev: { medals?: Medal[]; bestTime?: number; bestGhosts?: number } = had || { medals: [], bestTime: 999, bestGhosts: 99 };
     save.cleared[item.id] = {
       medals: [...new Set([...(prev.medals || []), ...earned])],
       bestTime: Math.min(prev.bestTime ?? 999, seconds),
@@ -471,13 +496,13 @@ export function createApp({ canvas, overlay, live }) {
     const best = !!had && seconds < (prev.bestTime ?? 999);
     state.result = { seconds, ghosts, earned, medals: save.cleared[item.id].medals, best, traces: state.attempts + 1 };
     state.clearT0 = state.time;
-    ["clear", "lean", "swift"].forEach((medal, i) => {
+    (["clear", "lean", "swift"] as const).forEach((medal, i) => {
       if (earned.includes(medal)) setTimeout(() => audio.medal(i), 420 + i * 320);
     });
     say(`${item.name} resolved. ${ghosts} echoes. ${seconds} seconds.`);
   }
 
-  function act(name, arg) {
+  function act(name: string, arg?: string) {
     audio.unlock();
     if (state.trans && state.trans.phase === "out") return;
     const session = state.session;
@@ -578,29 +603,31 @@ export function createApp({ canvas, overlay, live }) {
   }
 
   overlay.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-act]");
+    const button = (event.target as Element).closest<HTMLButtonElement>("[data-act]");
     if (!button || button.disabled) return;
     audio.click();
-    act(button.dataset.act, button.dataset.arg);
+    act(button.dataset.act!, button.dataset.arg);
     if (state.mode === "play") button.blur?.();
   });
   overlay.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("[data-hold='drop']")) touchDrop = true;
+    if ((event.target as Element).closest("[data-hold='drop']")) touchDrop = true;
   });
   window.addEventListener("pointerup", () => {
     touchDrop = false;
   });
   overlay.addEventListener("input", (event) => {
-    const setting = event.target.dataset.setting;
+    const input = event.target as HTMLInputElement;
+    const setting = input.dataset.setting;
     if (!setting) return;
-    const value = event.target.type === "range" ? Number(event.target.value) : event.target.checked;
-    state.settings[setting] = value;
+    const value = input.type === "range" ? Number(input.value) : input.checked;
+    (state.settings as unknown as Record<string, number | boolean>)[setting] = value;
     if (setting === "reducedMotion" && value) state.settings.shake = false;
     applySettings();
     if (setting === "reducedMotion") state.sig = "";
   });
 
   window.addEventListener("keydown", (event) => {
+    const onButton = () => (event.target as Element).closest?.("button");
     if (event.repeat && ["Space", "KeyF", "KeyR", "KeyZ", "KeyH", "KeyQ", "Enter", "Backspace"].includes(event.code)) return;
     audio.unlock();
     if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code) && state.mode === "play") event.preventDefault();
@@ -616,9 +643,9 @@ export function createApp({ canvas, overlay, live }) {
       if (event.code === "KeyH") act("hint");
       if (event.code === "Escape") act("pause");
     } else if (event.code === "Escape" && state.mode === "pause") act("resume");
-    else if (event.code === "Enter" && state.mode === "title" && !event.target.closest?.("button")) act(progressCount() ? "continue" : "begin");
-    else if (event.code === "Enter" && state.mode === "chapter" && !event.target.closest?.("button")) act("enter-chapter");
-    else if (event.code === "Enter" && state.mode === "clear" && !event.target.closest?.("button")) act("next");
+    else if (event.code === "Enter" && state.mode === "title" && !onButton()) act(progressCount() ? "continue" : "begin");
+    else if (event.code === "Enter" && state.mode === "chapter" && !onButton()) act("enter-chapter");
+    else if (event.code === "Enter" && state.mode === "clear" && !onButton()) act("next");
   });
   window.addEventListener("keyup", (event) => {
     if (event.code === "ArrowLeft" || event.code === "KeyA") keys.left = false;
@@ -647,7 +674,7 @@ export function createApp({ canvas, overlay, live }) {
 
   /* ---------- overlay ---------- */
 
-  function html(fresh) {
+  function html(fresh: boolean): string {
     const enter = fresh ? " enter" : "";
     if (state.mode === "title") return titleHtml(enter);
     if (state.mode === "facility") return facilityHtml(enter);
@@ -659,11 +686,11 @@ export function createApp({ canvas, overlay, live }) {
     return playHtml(enter);
   }
 
-  function stagger(items) {
+  function stagger(items: string[]): string {
     return items.map((item, i) => item.replace(/^<(\w+)/, `<$1 style="--i:${i}"`)).join("");
   }
 
-  function titleHtml(enter) {
+  function titleHtml(enter: string): string {
     const has = progressCount() > 0;
     const pct = Math.round((progressCount() / levels.length) * 100);
     return `<div class="title-screen${enter}">
@@ -691,7 +718,7 @@ export function createApp({ canvas, overlay, live }) {
     </div>`;
   }
 
-  function settingsHtml(enter) {
+  function settingsHtml(enter: string): string {
     const s = state.settings;
     return `<div class="center${enter}"><div class="card">
       ${stagger([
@@ -713,15 +740,15 @@ export function createApp({ canvas, overlay, live }) {
     </div></div>`;
   }
 
-  function range(setting, label, min, max, stepSize, value) {
+  function range(setting: string, label: string, min: number, max: number, stepSize: number, value: number): string {
     return `<label class="field"><span>${label}</span><input data-setting="${setting}" type="range" min="${min}" max="${max}" step="${stepSize}" value="${value}" /></label>`;
   }
 
-  function toggle(setting, label, on) {
+  function toggle(setting: string, label: string, on: boolean): string {
     return `<label class="switch"><input data-setting="${setting}" type="checkbox" role="switch" ${on ? "checked" : ""} /><i></i><span>${label}</span></label>`;
   }
 
-  function confirmHtml(enter) {
+  function confirmHtml(enter: string): string {
     return `<div class="center${enter}"><div class="card danger-card">
       ${stagger([
         `<p class="kicker">Reset</p>`,
@@ -732,7 +759,7 @@ export function createApp({ canvas, overlay, live }) {
     </div></div>`;
   }
 
-  function chapterHtml(enter) {
+  function chapterHtml(enter: string): string {
     const chapter = chapterOf(level());
     return `<div class="center${enter}"><div class="card chapter-card">
       ${stagger([
@@ -745,7 +772,7 @@ export function createApp({ canvas, overlay, live }) {
     </div></div>`;
   }
 
-  function pauseHtml(enter) {
+  function pauseHtml(enter: string): string {
     const item = level();
     const keysList = [
       ["A D", "Steer"], ["S", "Drop through grate"], ["Space", "Echo"], ["R", "Discard this trace"],
@@ -769,15 +796,15 @@ export function createApp({ canvas, overlay, live }) {
     </div></div>`;
   }
 
-  function countNoun(n, singular, plural) {
+  function countNoun(n: number, singular: string, plural: string): string {
     return `${n} ${n === 1 ? singular : plural}`;
   }
 
-  function clearHtml(enter) {
+  function clearHtml(enter: string): string {
     const item = level();
-    const result = state.result || { seconds: 0, ghosts: 0, earned: [], medals: [], traces: 1 };
+    const result: ClearResult = state.result || { seconds: 0, ghosts: 0, earned: [], medals: [], best: false, traces: 1 };
     const upcoming = nextLevel(item.id);
-    const medals = [
+    const medals: { id: Medal; name: string; need: string; icon: string }[] = [
       { id: "clear", name: "Resolved", need: "Reach the aperture", icon: ICON.check },
       { id: "lean", name: "Lean", need: `${countNoun(item.par.ghosts, "echo", "echoes")} or fewer`, icon: ICON.lean },
       { id: "swift", name: "Swift", need: `Under ${item.par.seconds}s`, icon: ICON.bolt },
@@ -812,9 +839,9 @@ export function createApp({ canvas, overlay, live }) {
     </div></div>`;
   }
 
-  function playHtml(enter) {
+  function playHtml(enter: string): string {
     const item = level();
-    const session = state.session;
+    const session = state.session!;
     const echoes = item.maxGhosts > 0;
     const count = session.ghosts.length;
     const chips = session.ghosts.map((ghost, index) => {
@@ -866,7 +893,7 @@ export function createApp({ canvas, overlay, live }) {
     </div>`;
   }
 
-  function facilityHtml(enter) {
+  function facilityHtml(enter: string): string {
     const next = nextUnsolved();
     const body = chapters.map((chapter, ci) => {
       const nodes = levels.map((item, index) => ({ item, index })).filter((entry) => entry.item.chapter === chapter.id);
@@ -877,7 +904,7 @@ export function createApp({ canvas, overlay, live }) {
         const medals = cleared?.medals || [];
         const cls = cleared ? "done" : open ? "open" : "sealed";
         const here = index === next && open && !cleared ? " next" : "";
-        const pips = ["clear", "lean", "swift"].map((m) => `<i class="${medals.includes(m) ? "on" : ""}"></i>`).join("");
+        const pips = (["clear", "lean", "swift"] as const).map((m) => `<i class="${medals.includes(m) ? "on" : ""}"></i>`).join("");
         const status = cleared ? `${medals.length} of 3 medals` : open ? "open" : "sealed";
         return `<li class="station ${cls}${here}">
           <button data-act="play" data-arg="${index}" ${open ? "" : "disabled"} aria-label="${String(index + 1).padStart(2, "0")} ${item.name}, ${status}">
@@ -907,9 +934,9 @@ export function createApp({ canvas, overlay, live }) {
     </div></div>`;
   }
 
-  function measureInsets(width, height) {
-    const hud = screen.querySelector(".hud");
-    const dock = screen.querySelector(".dock");
+  function measureInsets(width: number, height: number) {
+    const hud = screen.querySelector<HTMLElement>(".hud");
+    const dock = screen.querySelector<HTMLElement>(".dock");
     if (!hud || !dock) return;
     // offset metrics ignore the slide-in transforms, so the chamber never fits a half-animated HUD
     const top = hud.offsetTop + hud.offsetHeight + 10;
@@ -918,7 +945,7 @@ export function createApp({ canvas, overlay, live }) {
     state.measured = true;
   }
 
-  function syncOverlay(width, height) {
+  function syncOverlay(width: number, height: number) {
     const session = state.session;
     const sig = [
       state.mode,
@@ -935,11 +962,11 @@ export function createApp({ canvas, overlay, live }) {
       const key = `${state.mode}|${state.levelIndex}`;
       const fresh = key !== state.screenKey;
       state.screenKey = key;
-      const focused = document.activeElement?.dataset?.act;
+      const focused = (document.activeElement as HTMLElement | null)?.dataset?.act;
       screen.innerHTML = html(fresh);
       if (state.mode !== "play") {
-        const again = focused && screen.querySelector(`[data-act="${focused}"]`);
-        const primary = again || screen.querySelector(".primary");
+        const again = focused ? screen.querySelector<HTMLElement>(`[data-act="${focused}"]`) : null;
+        const primary = again || screen.querySelector<HTMLElement>(".primary");
         if (fresh || again) primary?.focus({ preventScroll: true });
       }
       if (state.mode === "play") state.measured = false;
@@ -953,17 +980,17 @@ export function createApp({ canvas, overlay, live }) {
       const timer = screen.querySelector("#timer");
       if (timer) {
         timer.textContent = left.toFixed(1);
-        screen.querySelector("#clock-fill").style.strokeDashoffset = String(100 * (1 - left / total));
-        screen.querySelector("#clock").classList.toggle("low", left < 3 && !session.won);
+        screen.querySelector<SVGElement>("#clock-fill")!.style.strokeDashoffset = String(100 * (1 - left / total));
+        screen.querySelector("#clock")!.classList.toggle("low", left < 3 && !session.won);
       }
       const limit = echoLimit(item);
-      for (const chip of screen.querySelectorAll(".chip[data-i]")) {
+      for (const chip of screen.querySelectorAll<HTMLElement>(".chip[data-i]")) {
         const ghost = session.ghosts[Number(chip.dataset.i)];
         if (!ghost) continue;
         chip.style.setProperty("--p", String(Math.min(1, session.frame / Math.max(1, ghost.frames.length - 1))));
         chip.style.setProperty("--len", String(ghost.frames.length / limit));
       }
-      const now = screen.querySelector(".now-chip");
+      const now = screen.querySelector<HTMLElement>(".now-chip");
       if (now) {
         now.style.setProperty("--p", String(Math.min(1, session.frame / limit)));
         now.classList.toggle("live", !session.dead && !session.won);
@@ -973,7 +1000,7 @@ export function createApp({ canvas, overlay, live }) {
     }
     if (state.mode === "clear") {
       const t = Math.min(1, Math.max(0, (state.time - state.clearT0 - 0.15) / 0.8));
-      for (const el of screen.querySelectorAll("[data-count]")) {
+      for (const el of screen.querySelectorAll<HTMLElement>("[data-count]")) {
         const value = Number(el.dataset.count) * easeOutCubic(t);
         el.textContent = value.toFixed(Number(el.dataset.dec));
       }
@@ -997,7 +1024,7 @@ export function createApp({ canvas, overlay, live }) {
 
   /* ---------- animation ---------- */
 
-  function present(dt) {
+  function present(dt: number) {
     const reduce = reduced();
     const fx = state.fx;
     fx.trauma = Math.max(0, fx.trauma - dt * 1.5);
@@ -1078,7 +1105,7 @@ export function createApp({ canvas, overlay, live }) {
     }
   }
 
-  function updateCamera(width, height, dt, snap) {
+  function updateCamera(width: number, height: number, dt: number, snap: boolean) {
     const target = fitCamera(width, height, state.insets);
     if (!state.cam || snap) {
       state.cam = target;
@@ -1095,7 +1122,7 @@ export function createApp({ canvas, overlay, live }) {
   let acc = 0;
   let last = performance.now();
   let lastSize = "";
-  function frame(nowMs) {
+  function frame(nowMs: number) {
     const dt = Math.min(0.05, (nowMs - last) / 1000);
     last = nowMs;
     state.time += dt;
@@ -1141,7 +1168,7 @@ export function createApp({ canvas, overlay, live }) {
       session: hideWorld ? null : state.session,
       state,
       now: state.time,
-      cam: state.cam,
+      cam: state.cam!,
     });
     requestAnimationFrame(frame);
   }

@@ -1,7 +1,10 @@
-import { rgba } from "./palette.js";
+import { rgba } from "./palette.ts";
+import type { Point, Session } from "./types.ts";
+
+type Ctx = CanvasRenderingContext2D;
 
 const TAU = Math.PI * 2;
-const palettes = [
+const palettes: [light: string, metal: string, shade: string, name: string][] = [
   ["#77e6d2", "#dcb788", "#163b43", "ARRIVAL"],
   ["#91bcff", "#e7c793", "#223755", "CALIBRATION"],
   ["#c4a0ff", "#f3b6ba", "#342a4c", "ECHO CHAMBERS"],
@@ -13,14 +16,14 @@ const palettes = [
   ["#f2d68e", "#a3f8e5", "#494333", "THE CORE"],
 ];
 
-export function chapterArt(chapter = 1) {
+export function chapterArt(chapter = 1): { light: string; metal: string; shade: string; name: string } {
   const [light, metal, shade, name] = palettes[(chapter - 1) % palettes.length];
   return { light, metal, shade, name };
 }
 
-const hash = (n) => { const v = Math.sin(n * 127.1 + 42) * 43758.5453; return v - Math.floor(v); };
+const hash = (n: number) => { const v = Math.sin(n * 127.1 + 42) * 43758.5453; return v - Math.floor(v); };
 
-function circle(ctx, x, y, r, color, width = 1) {
+function circle(ctx: Ctx, x: number, y: number, r: number, color: string, width = 1) {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, TAU);
   ctx.strokeStyle = color;
@@ -28,7 +31,7 @@ function circle(ctx, x, y, r, color, width = 1) {
   ctx.stroke();
 }
 
-function halo(ctx, x, y, radius, color, strength) {
+function halo(ctx: Ctx, x: number, y: number, radius: number, color: string, strength: number) {
   const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
   g.addColorStop(0, rgba(color, strength));
   g.addColorStop(0.4, rgba(color, strength * 0.3));
@@ -38,13 +41,14 @@ function halo(ctx, x, y, radius, color, strength) {
 }
 
 // Cached architecture: geometry is independent of animation and render resolution.
-const architecture = new Map();
-function room(chapter) {
-  if (architecture.has(chapter)) return architecture.get(chapter);
+const architecture = new Map<number, HTMLCanvasElement>();
+function room(chapter: number): HTMLCanvasElement {
+  const cached = architecture.get(chapter);
+  if (cached) return cached;
   const canvas = document.createElement("canvas");
   canvas.width = 1280;
   canvas.height = 720;
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d")!;
   const { light, metal, shade, name } = chapterArt(chapter);
   const bg = ctx.createLinearGradient(0, 0, 0, 720);
   bg.addColorStop(0, "#07131d");
@@ -129,7 +133,7 @@ function room(chapter) {
   return canvas;
 }
 
-export function drawObservatory(ctx, session, now, reduce, contrast) {
+export function drawObservatory(ctx: Ctx, session: Session, now: number, reduce: boolean, contrast: boolean) {
   const chapter = session.level.chapter;
   const { light, metal } = chapterArt(chapter);
   const t = reduce ? 12 : now;
@@ -162,7 +166,7 @@ export function drawObservatory(ctx, session, now, reduce, contrast) {
   ctx.restore();
 }
 
-export function drawAstrolabe(ctx, r, t, light, metal) {
+export function drawAstrolabe(ctx: Ctx, r: number, t: number, light: string, metal: string) {
   circle(ctx, 0, 0, r * 1.18, rgba(metal, 0.15));
   circle(ctx, 0, 0, r * 1.12, rgba(metal, 0.28), 3);
   circle(ctx, 0, 0, r * 1.09, rgba(metal, 0.12));
@@ -209,7 +213,7 @@ export function drawAstrolabe(ctx, r, t, light, metal) {
   halo(ctx, 0, 0, r * 0.65, light, 0.08);
 }
 
-export function drawTitleArt(ctx, w, h, now, reduce) {
+export function drawTitleArt(ctx: Ctx, w: number, h: number, now: number, reduce: boolean) {
   const compact = w <= 760;
   const t = reduce ? 9 : now;
   const cx = compact ? w * 0.78 : w * 0.74;
@@ -225,7 +229,7 @@ export function drawTitleArt(ctx, w, h, now, reduce) {
   for (let i = 2; i >= 0; i--) {
     const a = t * 0.3 - i * 0.78;
     const color = ["#fff1d5", "#77e6d2", "#b5a0ed"][i];
-    const orbit = (angle) => ({ x: Math.cos(angle) * r * 0.76, y: Math.sin(angle * 2) * r * 0.37 });
+    const orbit = (angle: number): Point => ({ x: Math.cos(angle) * r * 0.76, y: Math.sin(angle * 2) * r * 0.37 });
     ctx.lineCap = "round";
     for (let j = 24; j > 0; j--) {
       const p = orbit(a - j * 0.015), q = orbit(a - (j - 1) * 0.015);
@@ -261,7 +265,7 @@ export function drawTitleArt(ctx, w, h, now, reduce) {
   ctx.restore();
 }
 
-export function drawRibbon(ctx, trail, color, width, alpha = 1) {
+export function drawRibbon(ctx: Ctx, trail: Point[], color: string, width: number, alpha = 1) {
   if (trail.length < 2) return;
   ctx.save();
   ctx.globalCompositeOperation = "lighter";

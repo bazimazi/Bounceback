@@ -20,7 +20,8 @@ The temporal observatory has nine chapter palettes, layered architecture, animat
 ## Verification
 
 - `npm test` solves all 16 chambers and checks replay fidelity.
-- `npm run build` creates the production bundle.
+- `npm run typecheck` checks the TypeScript sources and tests.
+- `npm run build` typechecks, then creates the production bundle.
 - `npx playwright install chromium`, then `npm run test:browser`, checks gameplay, echo recording, phone and landscape layouts, and rendering in every chamber with reduced motion and high contrast.
 
 ## Controls

@@ -1,6 +1,7 @@
-import { RADIUS } from "./constants.js";
+import { RADIUS } from "./constants.ts";
+import type { Chapter, Level, Solid } from "./types.ts";
 
-export const chapters = [
+export const chapters: Chapter[] = [
   { id: 1, name: "Arrival", line: "The chamber wakes when you do." },
   { id: 2, name: "Calibration", line: "Some plates answer only to a trace." },
   { id: 3, name: "Echo Chambers", line: "A door can exist for a moment, then forget you." },
@@ -15,7 +16,7 @@ export const chapters = [
 const W = 1280;
 const H = 720;
 
-function shell() {
+function shell(): Solid[] {
   return [
     { id: "ceil", x: 0, y: 0, w: W, h: 28 },
     { id: "wall-l", x: 0, y: 0, w: 28, h: H },
@@ -23,15 +24,15 @@ function shell() {
   ];
 }
 
-function restY(floorTop) {
+function restY(floorTop: number): number {
   return floorTop - RADIUS;
 }
 
-function hints(...lines) {
+function hints(...lines: string[]): string[] {
   return lines;
 }
 
-export const levels = [
+export const levels: Level[] = [
   {
     id: "first-bounce",
     name: "First Bounce",
@@ -633,11 +634,11 @@ export const levels = [
   },
 ];
 
-export function levelById(id) {
+export function levelById(id: string): Level | null {
   return levels.find((level) => level.id === id) || null;
 }
 
-export function nextLevel(id) {
+export function nextLevel(id: string): Level | null {
   const index = levels.findIndex((level) => level.id === id);
   if (index < 0 || index >= levels.length - 1) return null;
   return levels[index + 1];

@@ -1,6 +1,8 @@
+import type { Level, Medal, Save } from "./types.ts";
+
 const KEY = "bounceback.v1";
 
-function motionPreference() {
+function motionPreference(): boolean {
   try {
     return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   } catch {
@@ -8,7 +10,7 @@ function motionPreference() {
   }
 }
 
-export function defaultSave() {
+export function defaultSave(): Save {
   const reduce = motionPreference();
   return {
     version: 1,
@@ -28,7 +30,7 @@ export function defaultSave() {
   };
 }
 
-export function loadSave() {
+export function loadSave(): Save {
   const base = defaultSave();
   try {
     const raw = localStorage.getItem(KEY);
@@ -48,7 +50,7 @@ export function loadSave() {
   }
 }
 
-export function writeSave(save) {
+export function writeSave(save: Save): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(save));
   } catch {
@@ -56,8 +58,8 @@ export function writeSave(save) {
   }
 }
 
-export function medalFor(level, ghosts, seconds) {
-  const medals = ["clear"];
+export function medalFor(level: Level, ghosts: number, seconds: number): Medal[] {
+  const medals: Medal[] = ["clear"];
   if (ghosts <= level.par.ghosts) medals.push("lean");
   if (seconds <= level.par.seconds) medals.push("swift");
   return medals;

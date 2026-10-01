@@ -1,4 +1,12 @@
-export const GHOST_STYLES = [
+export type GhostPattern = "ring" | "bars" | "dots" | "cross" | "chevron";
+
+export interface GhostStyle {
+  color: string;
+  pattern: GhostPattern;
+  label: string;
+}
+
+export const GHOST_STYLES: GhostStyle[] = [
   { color: "#3ddec4", pattern: "ring", label: "I" },
   { color: "#f0c14d", pattern: "bars", label: "II" },
   { color: "#ff7ad1", pattern: "dots", label: "III" },
@@ -19,7 +27,7 @@ export const INK = {
   night: "#090b10",
 };
 
-export function rgba(hex, alpha) {
+export function rgba(hex: string, alpha: number): string {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }

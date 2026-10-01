@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { levels } from "../src/game/levels.js";
+import { levels } from "../src/game/levels.ts";
 import {
   commitEcho,
   createSession,
@@ -8,14 +8,23 @@ import {
   moverRect,
   restartAll,
   step,
-} from "../src/game/sim.js";
+} from "../src/game/sim.ts";
+import type { Level, Session } from "../src/game/types.ts";
 
-function plateCenter(level, id) {
-  const plate = level.plates.find((item) => item.id === id);
+interface Action {
+  x?: number;
+  drop?: boolean;
+  echo?: boolean;
+}
+
+type Policy = (s: Session, frame?: number) => Action | undefined;
+
+function plateCenter(level: Level, id: string): number {
+  const plate = level.plates.find((item) => item.id === id)!;
   return plate.x + plate.w / 2;
 }
 
-function settleAt(tx) {
+function settleAt(tx: number): Policy {
   return (s) => {
     const ball = s.ball;
     const dx = tx - ball.x;
@@ -27,8 +36,8 @@ function settleAt(tx) {
   };
 }
 
-function dropInto(level, plateId) {
-  const grate = level.solids.find((solid) => solid.id === `grate-${plateId}`);
+function dropInto(level: Level, plateId: string): Policy {
+  const grate = level.solids.find((solid) => solid.id === `grate-${plateId}`)!;
   const tx = plateCenter(level, plateId);
   return (s) => {
     const ball = s.ball;
@@ -46,7 +55,7 @@ function dropInto(level, plateId) {
   };
 }
 
-function advance(s) {
+function advance(s: Session): Action {
   const ahead = s.level.doors
     .filter((door) => !s.doors[door.id].open && door.x + door.w > s.ball.x - 6)
     .sort((a, b) => a.x - b.x)[0];
@@ -55,7 +64,7 @@ function advance(s) {
   return { x: 0 };
 }
 
-function standUntilOpen(level, plateId, doorId) {
+function standUntilOpen(level: Level, plateId: string, doorId: string): Policy {
   const tx = plateCenter(level, plateId);
   return (s) => {
     if (s.doors[doorId].open) return advance(s);
@@ -65,20 +74,20 @@ function standUntilOpen(level, plateId, doorId) {
   };
 }
 
-function sprintWhenClear(s) {
+function sprintWhenClear(s: Session): Action {
   const door = s.level.doors.find((item) => !s.doors[item.id].open && item.x > s.ball.x - 10);
   if (door && s.ball.x > door.x - 84) return { x: -1 };
   return { x: 1 };
 }
 
-function slideToWall(s) {
+function slideToWall(s: Session): Action {
   const ball = s.ball;
   if (ball.x < 78 && ball.grounded && Math.abs(ball.vx) < 20 && Math.abs(ball.vy) < 100) return { echo: true };
   return { x: -1 };
 }
 
-function againstDais(s) {
-  const dais = s.level.solids.find((solid) => solid.id === "dais");
+function againstDais(s: Session): Action {
+  const dais = s.level.solids.find((solid) => solid.id === "dais")!;
   const ball = s.ball;
   if (ball.x > dais.x - 40 && ball.grounded && Math.abs(ball.vx) < 18 && Math.abs(ball.vy) < 100) {
     return { echo: true };
@@ -86,13 +95,13 @@ function againstDais(s) {
   return { x: 1 };
 }
 
-function rideTo(done) {
+function rideTo(done: Policy): Policy {
   return (s) => {
     if (s.dead) return { x: 0 };
     const mover = s.movers[0];
     const rect = moverRect(mover);
-    const left = s.level.solids.find((solid) => solid.id === "left");
-    const right = s.level.solids.find((solid) => solid.id === "right");
+    const left = s.level.solids.find((solid) => solid.id === "left")!;
+    const right = s.level.solids.find((solid) => solid.id === "right")!;
     const ball = s.ball;
     const waitX = Math.min(mover.x + 36, left.x + left.w - 30);
     const carried = rect.x > mover.x + 12;
@@ -113,7 +122,7 @@ function rideTo(done) {
   };
 }
 
-function describe(session) {
+function describe(session: Session): string {
   const ball = session.ball;
   const doors = Object.entries(session.doors)
     .map(([id, door]) => `${id}:${door.open ? "open" : "shut"}`)
@@ -124,9 +133,9 @@ function describe(session) {
   return `frame ${session.frame} ball (${ball.x.toFixed(1)}, ${ball.y.toFixed(1)}) v (${ball.vx.toFixed(1)}, ${ball.vy.toFixed(1)}) ground ${ball.groundId} alive ${ball.alive} ${doors} ${plates}`;
 }
 
-function play(level, policies, limit = 1800) {
+function play(level: Level, policies: Policy[], limit = 1800): Session {
   const session = createSession(level);
-  const trace = [];
+  const trace: string[] = [];
   for (let attempt = 0; attempt < policies.length; attempt++) {
     const policy = policies[attempt];
     let echoed = false;
@@ -159,7 +168,7 @@ function play(level, policies, limit = 1800) {
   throw new Error(`${level.id} unfinished\n${describe(session)}\n${trace.slice(-12).join("\n")}`);
 }
 
-const scripts = {
+const scripts: Record<string, Policy[]> = {
   "first-bounce": [() => ({ x: 1 })],
   "keep-the-door": [(s) => settleAt(plateCenter(s.level, "p1"))(s), advance],
   "leave-yourself": [(s) => dropInto(s.level, "p1")(s), advance],
@@ -192,7 +201,7 @@ const scripts = {
   ],
 };
 
-function validateLevel(level) {
+function validateLevel(level: Level) {
   const ids = new Set(level.doors.map((door) => door.id));
   for (const plate of level.plates) {
     for (const target of plate.targets || []) {
@@ -212,7 +221,7 @@ function validateLevel(level) {
 }
 
 function testDeterminism() {
-  const level = levels.find((item) => item.id === "keep-the-door");
+  const level = levels.find((item) => item.id === "keep-the-door")!;
   const run = () => {
     const session = createSession(level);
     for (let i = 0; i < 180; i++) step(session, { x: i < 90 ? 1 : 0 });
@@ -238,7 +247,7 @@ function testGhostMatchesRecording() {
 }
 
 function testEraseKeepsEarlierGhosts() {
-  const level = levels.find((item) => item.id === "handoff");
+  const level = levels.find((item) => item.id === "handoff")!;
   const session = createSession(level);
   for (let i = 0; i < 40; i++) step(session, { x: 1 });
   commitEcho(session);
@@ -251,7 +260,7 @@ function testEraseKeepsEarlierGhosts() {
   assert.equal(session.ghosts.length, 0);
 }
 
-const failures = [];
+const failures: string[] = [];
 for (const level of levels) {
   validateLevel(level);
   if (!scripts[level.id]) {
@@ -263,7 +272,7 @@ for (const level of levels) {
     assert.equal(session.won, true);
     console.log(`ok  ${level.id.padEnd(18)} ghosts ${session.ghosts.length}  ${session.winFrame / 60}s`);
   } catch (error) {
-    failures.push(error.message);
+    failures.push((error as Error).message);
     console.error(`FAIL ${level.id}`);
   }
 }
@@ -274,7 +283,7 @@ try {
   testEraseKeepsEarlierGhosts();
   console.log("ok  determinism, replay fidelity, erase");
 } catch (error) {
-  failures.push(error.message);
+  failures.push((error as Error).message);
 }
 
 if (failures.length) {

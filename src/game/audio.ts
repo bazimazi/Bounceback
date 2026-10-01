@@ -1,17 +1,39 @@
+interface ToneOptions {
+  freq?: number;
+  dur?: number;
+  type?: OscillatorType;
+  gain?: number;
+  slide?: number;
+  delay?: number;
+  wet?: boolean;
+}
+
+interface HissOptions {
+  dur?: number;
+  gain?: number;
+  from?: number;
+  to?: number;
+  q?: number;
+  type?: BiquadFilterType;
+  delay?: number;
+}
+
+export type GameAudio = ReturnType<typeof createAudio>;
+
 export function createAudio() {
-  let ctx = null;
-  let master = null;
-  let fxBus = null;
-  let musicBus = null;
-  let musicFilter = null;
-  let music = null;
-  let noise = null;
+  let ctx: AudioContext | null = null;
+  let master: GainNode | null = null;
+  let fxBus: GainNode | null = null;
+  let musicBus: GainNode | null = null;
+  let musicFilter: BiquadFilterNode | null = null;
+  let music: GainNode[] | null = null;
+  let noise: AudioBuffer | null = null;
   let volume = 0.8;
   let ghostCount = 0;
 
-  function context() {
+  function context(): AudioContext | null {
     if (!ctx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
+      const AC = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AC) return null;
       ctx = new AC();
       master = ctx.createGain();
@@ -51,7 +73,7 @@ export function createAudio() {
     return ctx;
   }
 
-  function tone({ freq = 440, dur = 0.08, type = "sine", gain = 0.08, slide = 0, delay = 0, wet = false }) {
+  function tone({ freq = 440, dur = 0.08, type = "sine", gain = 0.08, slide = 0, delay = 0, wet = false }: ToneOptions) {
     const audio = context();
     if (!audio || volume <= 0.001) return;
     const t = audio.currentTime + delay;
@@ -64,12 +86,12 @@ export function createAudio() {
     amp.gain.exponentialRampToValueAtTime(gain, t + 0.012);
     amp.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(amp);
-    amp.connect(wet ? fxBus : master);
+    amp.connect(wet ? fxBus! : master!);
     osc.start(t);
     osc.stop(t + dur + 0.02);
   }
 
-  function hiss({ dur = 0.2, gain = 0.05, from = 800, to = 200, q = 1, type = "bandpass", delay = 0 }) {
+  function hiss({ dur = 0.2, gain = 0.05, from = 800, to = 200, q = 1, type = "bandpass", delay = 0 }: HissOptions) {
     const audio = context();
     if (!audio || volume <= 0.001) return;
     const t = audio.currentTime + delay;
@@ -86,12 +108,12 @@ export function createAudio() {
     amp.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(filter);
     filter.connect(amp);
-    amp.connect(master);
+    amp.connect(master!);
     src.start(t, Math.random() * 0.5);
     src.stop(t + dur + 0.02);
   }
 
-  function setVolume(value) {
+  function setVolume(value: number) {
     volume = value;
     if (master) master.gain.value = value;
   }
@@ -117,25 +139,26 @@ export function createAudio() {
       amp.gain.value = index === 0 ? 0.018 : 0;
       osc.connect(amp);
       amp.connect(swell);
-      swell.connect(musicBus);
+      swell.connect(musicBus!);
       osc.start();
       lfo.start();
       return amp;
     });
   }
 
-  function applyGhosts(count) {
+  function applyGhosts(count: number) {
     ghostCount = count;
     if (!music || !ctx) return;
+    const audio = ctx;
     music.forEach((amp, index) => {
       const target = index === 0 ? 0.02 : index <= count ? 0.011 : 0;
-      amp.gain.cancelScheduledValues(ctx.currentTime);
-      amp.gain.setValueAtTime(amp.gain.value, ctx.currentTime);
-      amp.gain.linearRampToValueAtTime(target, ctx.currentTime + 0.6);
+      amp.gain.cancelScheduledValues(audio.currentTime);
+      amp.gain.setValueAtTime(amp.gain.value, audio.currentTime);
+      amp.gain.linearRampToValueAtTime(target, audio.currentTime + 0.6);
     });
   }
 
-  const semitone = (n) => Math.pow(2, n / 12);
+  const semitone = (n: number) => Math.pow(2, n / 12);
 
   return {
     unlock() {
@@ -144,11 +167,11 @@ export function createAudio() {
       applyGhosts(ghostCount);
     },
     setVolume,
-    setGhosts(count) {
+    setGhosts(count: number) {
       ensureMusic();
       applyGhosts(count);
     },
-    duck(on) {
+    duck(on: boolean) {
       if (!ctx || !musicFilter) return;
       const t = ctx.currentTime;
       musicFilter.frequency.cancelScheduledValues(t);
@@ -190,19 +213,20 @@ export function createAudio() {
       });
       hiss({ dur: 0.6, gain: 0.03, from: 400, to: 4000, q: 2 });
       if (music) {
+        const audio = ctx!;
         music.forEach((amp) => {
-          amp.gain.cancelScheduledValues(ctx.currentTime);
-          amp.gain.setValueAtTime(amp.gain.value, ctx.currentTime);
-          amp.gain.linearRampToValueAtTime(0.024, ctx.currentTime + 0.3);
+          amp.gain.cancelScheduledValues(audio.currentTime);
+          amp.gain.setValueAtTime(amp.gain.value, audio.currentTime);
+          amp.gain.linearRampToValueAtTime(0.024, audio.currentTime + 0.3);
         });
       }
     },
-    medal(index) {
+    medal(index: number) {
       const base = 784 * semitone(index * 2);
       tone({ freq: base, dur: 0.3, type: "sine", gain: 0.05, wet: true });
       tone({ freq: base * 1.5, dur: 0.22, type: "triangle", gain: 0.018, delay: 0.03, wet: true });
     },
-    tick(left) {
+    tick(left: number) {
       tone({ freq: 880 * semitone(3 - left), dur: 0.05, type: "square", gain: 0.018 });
     },
     click() {
